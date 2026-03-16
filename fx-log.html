@@ -1,0 +1,1501 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FX Trading Log</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#070b10;color:#e2e8f0;font-family:'Courier New',monospace;min-height:100vh;}
+button,input,select,textarea{font-family:inherit;}
+::-webkit-scrollbar{width:5px;}::-webkit-scrollbar-track{background:#0d1117;}::-webkit-scrollbar-thumb{background:#1e293b;}
+select option{background:#111827;color:#e2e8f0;}
+.nav-btn{padding:12px 18px;border:none;background:transparent;color:#475569;font-size:11px;letter-spacing:2px;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;}
+.nav-btn.active{color:#f59e0b;border-bottom-color:#f59e0b;font-weight:700;}
+.pair-btn{padding:8px 16px;border:none;background:transparent;color:#475569;font-size:10px;letter-spacing:2px;cursor:pointer;border-right:1px solid #1e293b;}
+.pair-btn.active{background:#1e293b;color:#e2e8f0;}
+.card{padding:14px 18px;background:#0d1117;border:1px solid #1e293b;cursor:pointer;margin-bottom:2px;transition:border-color .15s;}
+.card:hover{border-color:#334155;}
+.btn-primary{padding:9px 22px;background:#f59e0b;border:none;color:#0a0a0f;font-size:10px;letter-spacing:2px;cursor:pointer;font-weight:700;}
+.btn-secondary{padding:7px 16px;background:transparent;border:1px solid #334155;color:#94a3b8;font-size:10px;letter-spacing:2px;cursor:pointer;}
+.btn-danger{padding:7px 16px;background:transparent;border:1px solid #7f1d1d;color:#f87171;font-size:10px;letter-spacing:2px;cursor:pointer;}
+.lbl{font-size:9px;color:#475569;letter-spacing:2px;display:block;margin-bottom:6px;text-transform:uppercase;}
+.inp{background:#111827;border:1px solid #1e293b;color:#e2e8f0;padding:10px 14px;font-size:12px;width:100%;outline:none;}
+.inp:focus{border-color:#334155;}
+.bias-btn{padding:5px 11px;border:1px solid #1e293b;background:transparent;color:#475569;font-size:9px;letter-spacing:1px;cursor:pointer;font-weight:700;}
+.result-btn{padding:6px 13px;border:1px solid #1e293b;background:transparent;color:#475569;font-size:11px;cursor:pointer;font-weight:700;}
+.field-box{padding:12px 14px;background:#0d1117;border:1px solid #1e293b;margin-bottom:8px;}
+.chart-card{background:#0d1117;border:1px solid #1e293b;padding:18px;margin-bottom:14px;}
+.chart-title{font-size:9px;color:#475569;letter-spacing:3px;text-transform:uppercase;margin-bottom:14px;}
+.empty{text-align:center;color:#1e293b;padding:60px 0;font-size:11px;letter-spacing:3px;}
+.tag{display:inline-block;padding:2px 8px;font-size:9px;font-weight:700;letter-spacing:1px;border-radius:2px;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+var STORAGE_KEY="fx-master-log-v2";
+var IMG_KEY="fx-chart-images-v1";
+var PAIRS=["XAUUSD","NASDAQ"];
+var CANDLE_OPT=["strong bullish","bullish","weak bullish","bullish doji","hammer bullish","strong bearish","bearish","weak bearish","bearish doji","doji"];
+var BIAS_OPT=["fully bullish","bullish","mix but more bullish","mix","mix but more bearish","bearish","full bearish"];
+var SETUP_OPT=["TS1","TS2","TS3","NO SETUP","(TS1)","(TS2)","(TS3)"];
+var ENTRY_OPT=["エントリー","見送り","ノートレード","テスト","ノーセットアップ"];
+var RESULT_OPT=["W","L","BE","(W)","(L)","(BE)","---"];
+var RULE_OPT=["⭕️","❌","---"];
+var DAILY_FIELDS=[
+  {key:"pDCandle",label:"pD Candle"},{key:"pDClose",label:"pD Close"},
+  {key:"h4Candle",label:"H4 Candle"},{key:"h4Close",label:"H4 Close"},
+  {key:"h1Structure",label:"H1 Structure"},{key:"m30Structure",label:"M30 Structure"},
+  {key:"bias",label:"Bias"},
+  {key:"tradeIdea1",label:"Trade Idea 1"},{key:"tradeIdea2",label:"Trade Idea 2"},
+  {key:"tradeIdea3",label:"Trade Idea 3"},{key:"tradeIdea4",label:"Trade Idea 4"},
+  {key:"chart",label:"Chart Notes"}
+];
+var WEEKLY_FIELDS=[
+  {key:"weekBias",label:"Weekly Bias"},{key:"goldBias",label:"GOLD Bias"},
+  {key:"nasBias",label:"NASDAQ Bias"},{key:"keyLevels",label:"Key S/R Levels"},
+  {key:"outlook",label:"Week Outlook"},{key:"notes",label:"Notes"}
+];
+
+function loadData(){
+  try{var s=localStorage.getItem(STORAGE_KEY);if(s)return JSON.parse(s);}catch(e){}
+  return{daily:{XAUUSD:[],NASDAQ:[]},weekly:[],trades:[]};
+}
+var state={section:"daily",activePair:"XAUUSD",view:"list",editItem:null,detailItem:null,detailIdx:-1,data:loadData()};
+var saveTimer=null;
+function save(){clearTimeout(saveTimer);saveTimer=setTimeout(function(){localStorage.setItem(STORAGE_KEY,JSON.stringify(state.data));},500);}
+function setState(u){for(var k in u)state[k]=u[k];render();}
+
+function todayStr(){var d=new Date();return(d.getMonth()+1)+"/"+d.getDate();}
+function currentWeek(){var d=new Date(),s=new Date(d);s.setDate(d.getDate()-d.getDay()+1);return"W"+(s.getMonth()+1)+"/"+s.getDate();}
+function emptyDaily(){var o={date:todayStr()};DAILY_FIELDS.forEach(function(f){o[f.key]="";});return o;}
+function emptyWeekly(){var o={week:currentWeek()};WEEKLY_FIELDS.forEach(function(f){o[f.key]="";});return o;}
+function emptyTrade(){return{date:"",pair:"XAUUSD",setup:"TS1",ts1Size:"",entryType:"エントリー",ruleFollow:"⭕️",checkRate:"",result:"W",time:"",memo:"",link1:"",link2:""};}
+
+function biasColor(b){
+  if(!b)return"#3f4458";var s=b.toLowerCase();
+  if(s.indexOf("full bull")>=0||s==="bullish")return"#22c55e";
+  if(s.indexOf("more bull")>=0)return"#86efac";
+  if(s.indexOf("full bear")>=0||s==="bearish")return"#ef4444";
+  if(s.indexOf("more bear")>=0)return"#fca5a5";
+  return"#94a3b8";
+}
+function resultColor(r){
+  if(!r)return"#3f4458";
+  if(r==="W"||r==="(W)")return"#22c55e";
+  if(r==="L"||r==="(L)")return"#ef4444";
+  if(r==="BE"||r==="(BE)")return"#f59e0b";
+  return"#64748b";
+}
+function candleIcon(c){if(!c)return"◆";var s=c.toLowerCase();if(s.indexOf("bull")>=0)return"▲";if(s.indexOf("bear")>=0)return"▼";return"◆";}
+function candleColor(c){if(!c)return"#64748b";var s=c.toLowerCase();if(s.indexOf("bull")>=0)return"#22c55e";if(s.indexOf("bear")>=0)return"#ef4444";return"#94a3b8";}
+function esc(s){return(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+
+function saveDaily(item){
+  var list=state.data.daily[state.activePair]||[];
+  var idx=-1;for(var i=0;i<list.length;i++){if(list[i].date===item.date){idx=i;break;}}
+  if(idx>=0)list[idx]=item;else list.unshift(item);
+  state.data.daily[state.activePair]=list;
+  save();setState({view:"list"});
+}
+function deleteDaily(date){state.data.daily[state.activePair]=state.data.daily[state.activePair].filter(function(e){return e.date!==date;});save();setState({view:"list"});}
+function saveWeekly(item){
+  var list=state.data.weekly||[];
+  var idx=-1;for(var i=0;i<list.length;i++){if(list[i].week===item.week){idx=i;break;}}
+  if(idx>=0)list[idx]=item;else list.unshift(item);
+  state.data.weekly=list;save();setState({view:"list"});
+}
+function deleteWeekly(week){state.data.weekly=state.data.weekly.filter(function(e){return e.week!==week;});save();setState({view:"list"});}
+function saveTrade(item){
+  var idx=item._id;var clean={};for(var k in item){if(k!=="__id"&&k!=="_id")clean[k]=item[k];}
+  if(idx>=0)state.data.trades[idx]=clean;else state.data.trades.unshift(clean);
+  save();setState({view:"list"});
+}
+function deleteTrade(idx){state.data.trades=state.data.trades.filter(function(_,i){return i!==idx;});save();setState({view:"list"});}
+
+// Image storage
+function getImages(){try{var s=localStorage.getItem(IMG_KEY);return s?JSON.parse(s):{}}catch(e){return{};}}
+function saveImage(key,slot,data){var imgs=getImages();if(!imgs[key])imgs[key]={};imgs[key][slot]=data;localStorage.setItem(IMG_KEY,JSON.stringify(imgs));}
+function deleteImage(key,slot){var imgs=getImages();if(imgs[key])delete imgs[key][slot];localStorage.setItem(IMG_KEY,JSON.stringify(imgs));}
+function imgKey(sec,pair,id){return sec+"__"+(pair||"")+"__"+id;}
+function safeId(s){return s.replace(/[^a-z0-9]/gi,"_");}
+
+function renderUploadedImages(eKey){
+  var imgs=getImages()[eKey]||{};var html="";
+  for(var slot in imgs){
+    html+='<div style="margin-bottom:10px;">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+    html+='<span class="lbl" style="margin:0;">CHART IMAGE '+slot+'</span>';
+    html+='<button onclick="deleteImage(\''+eKey+'\',\''+slot+'\');render();" style="font-size:9px;color:#f87171;background:transparent;border:1px solid #7f1d1d;padding:2px 8px;cursor:pointer;">削除</button>';
+    html+='</div>';
+    html+='<img src="'+imgs[slot]+'" style="width:100%;max-height:340px;object-fit:contain;border:1px solid #1e293b;background:#0d1117;display:block;">';
+    html+='</div>';
+  }
+  return html;
+}
+
+function imgUploadBtn(eKey){
+  var sid=safeId(eKey);
+  return '<div style="margin-top:12px;">'+
+    '<label class="lbl">チャート画像 (JPEG/PNG)</label>'+
+    '<label style="display:inline-block;padding:7px 16px;background:transparent;border:1px solid #334155;color:#94a3b8;font-size:10px;letter-spacing:2px;cursor:pointer;">'+
+    '+ 画像を追加'+
+    '<input type="file" accept="image/*" multiple style="display:none;" onchange="handleImgUpload(event,\''+eKey+'\')">'+
+    '</label>'+
+    '<div id="ip-'+sid+'" style="margin-top:8px;">'+renderUploadedImages(eKey)+'</div>'+
+    '</div>';
+}
+
+window.handleImgUpload=function(evt,eKey){
+  var files=Array.prototype.slice.call(evt.target.files);
+  var sid=safeId(eKey);
+  files.forEach(function(file){
+    var r=new FileReader();
+    r.onload=function(e){
+      var imgs=getImages()[eKey]||{};var slot=1;while(imgs[slot])slot++;
+      saveImage(eKey,slot,e.target.result);
+      var el=document.getElementById("ip-"+sid);
+      if(el)el.innerHTML=renderUploadedImages(eKey);
+    };
+    r.readAsDataURL(file);
+  });
+};
+
+function renderUrlPreview(url,idx){
+  if(!url)return"";
+  var isImg=/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i.test(url);
+  var isTv=/tradingview\.com\/x\//i.test(url);
+  var imgSrc=isTv?url.replace(/\/?$/,"")+".png":(isImg?url:null);
+  var errId="urlerr"+idx+(Math.random()*1e6|0);
+  var html='<div style="margin-bottom:12px;">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+  html+='<span class="lbl" style="margin:0;">CHART '+idx+'</span>';
+  html+='<a href="'+esc(url)+'" target="_blank" style="font-size:9px;color:#f59e0b;text-decoration:none;letter-spacing:1px;border:1px solid #334155;padding:3px 10px;">OPEN →</a>';
+  html+='</div>';
+  if(imgSrc){
+    html+='<img src="'+esc(imgSrc)+'" style="width:100%;max-height:340px;object-fit:contain;border:1px solid #1e293b;background:#0d1117;display:block;" onerror="this.style.display=\'none\';document.getElementById(\''+errId+'\').style.display=\'block\'">';
+    html+='<div id="'+errId+'" style="display:none;padding:8px;background:#0d1117;border:1px solid #1e293b;font-size:10px;color:#475569;">画像読み込み失敗 — <a href="'+esc(url)+'" target="_blank" style="color:#f59e0b;">リンクで開く</a></div>';
+  }else{
+    html+='<div style="padding:8px 12px;background:#0d1117;border:1px solid #1e293b;font-size:10px;color:#475569;word-break:break-all;">'+esc(url)+'</div>';
+  }
+  html+='</div>';
+  return html;
+}
+
+// SVG helpers
+function svgBarChart(data,keys,colors,w,h){
+  w=w||560;h=h||140;
+  var pl=30,pr=10,pt=10,pb=28,iw=w-pl-pr,ih=h-pt-pb;
+  var maxV=1;
+  data.forEach(function(d){var t=0;keys.forEach(function(k){t+=d[k]||0;});if(t>maxV)maxV=t;});
+  var gap=iw/data.length;var bw=Math.min(36,gap*0.4);
+  var out="";
+  for(var i=0;i<=4;i++){var y=pt+ih-(i/4)*ih,v=Math.round(maxV*(i/4));out+='<line x1="'+pl+'" y1="'+y+'" x2="'+(pl+iw)+'" y2="'+y+'" stroke="#1e293b" stroke-width="1"/>';if(i>0)out+='<text x="'+(pl-4)+'" y="'+(y+4)+'" text-anchor="end" fill="#475569" font-size="9">'+v+'</text>';}
+  data.forEach(function(d,i){
+    var cx=pl+i*gap+gap/2;var segW=bw/keys.length;
+    keys.forEach(function(k,ki){var v=d[k]||0,bh=(v/maxV)*ih;if(bh>0)out+='<rect x="'+(cx-bw/2+ki*segW)+'" y="'+(pt+ih-bh)+'" width="'+(segW-1)+'" height="'+bh+'" fill="'+colors[ki]+'" rx="2"/>';});
+    out+='<text x="'+cx+'" y="'+(h-6)+'" text-anchor="middle" fill="#64748b" font-size="9">'+(d._label||"")+'</text>';
+  });
+  return'<svg width="100%" viewBox="0 0 '+w+' '+h+'" xmlns="http://www.w3.org/2000/svg">'+out+'</svg>';
+}
+function svgDonut(data,size){
+  size=size||120;var cx=size/2,cy=size/2,R=size*0.43,r=size*0.25;
+  var total=0;data.forEach(function(d){total+=d.value;});if(!total)return"";
+  var paths="",angle=-Math.PI/2;
+  data.forEach(function(d){
+    var a=(d.value/total)*Math.PI*2;
+    var x1=cx+R*Math.cos(angle),y1=cy+R*Math.sin(angle);
+    var x2=cx+R*Math.cos(angle+a),y2=cy+R*Math.sin(angle+a);
+    var ix1=cx+r*Math.cos(angle),iy1=cy+r*Math.sin(angle);
+    var ix2=cx+r*Math.cos(angle+a),iy2=cy+r*Math.sin(angle+a);
+    var lg=a>Math.PI?1:0;
+    paths+='<path d="M'+x1+','+y1+' A'+R+','+R+' 0 '+lg+',1 '+x2+','+y2+' L'+ix2+','+iy2+' A'+r+','+r+' 0 '+lg+',0 '+ix1+','+iy1+' Z" fill="'+d.color+'"/>';
+    angle+=a;
+  });
+  return'<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'" xmlns="http://www.w3.org/2000/svg">'+paths+'</svg>';
+}
+function svgLine(data,w,h){
+  w=w||560;h=h||100;if(data.length<2)return"";
+  var pl=30,pr=10,pt=8,pb=24,iw=w-pl-pr,ih=h-pt-pb;
+  var minV=data[0].value,maxV=data[0].value;
+  data.forEach(function(d){if(d.value<minV)minV=d.value;if(d.value>maxV)maxV=d.value;});
+  var range=maxV-minV||1;
+  var pts=data.map(function(d,i){var x=pl+(i/(data.length-1))*iw,y=pt+ih-((d.value-minV)/range)*ih;return x+","+y;}).join(" ");
+  var lbls=data.map(function(d,i){var x=pl+(i/(data.length-1))*iw;return'<text x="'+x+'" y="'+(h-4)+'" text-anchor="middle" fill="#475569" font-size="8">'+d.label+'</text>';}).join("");
+  var dots=data.map(function(d,i){var x=pl+(i/(data.length-1))*iw,y=pt+ih-((d.value-minV)/range)*ih;return'<circle cx="'+x+'" cy="'+y+'" r="3" fill="#f59e0b"/>';}).join("");
+  return'<svg width="100%" viewBox="0 0 '+w+' '+h+'" xmlns="http://www.w3.org/2000/svg"><polyline points="'+pts+'" fill="none" stroke="#f59e0b" stroke-width="2"/>'+dots+lbls+'</svg>';
+}
+
+function renderCharts(){
+  var trades=state.data.trades||[];
+  var actual=trades.filter(function(t){return t.entryType==="エントリー"||t.entryType==="テスト";});
+  var rc={W:0,L:0,BE:0};
+  actual.forEach(function(t){var r=(t.result||"").replace(/[()]/g,"");if(rc[r]!==undefined)rc[r]++;});
+  var total=actual.length;
+  var comply=actual.filter(function(t){return t.ruleFollow==="⭕️";}).length;
+  var compRate=total?Math.round(comply/total*100):0;
+  var compColor=compRate>=80?"#22c55e":compRate>=60?"#f59e0b":"#ef4444";
+  var setupMap={};
+  actual.forEach(function(t){var s=(t.setup||"?").replace(/[()]/g,"");if(!setupMap[s])setupMap[s]={_label:s,W:0,L:0,BE:0};var r=(t.result||"").replace(/[()]/g,"");if(setupMap[s][r]!==undefined)setupMap[s][r]++;});
+  var pairMap={};
+  actual.forEach(function(t){var p=t.pair||"—";if(!pairMap[p])pairMap[p]={_label:p,W:0,L:0,BE:0};var r=(t.result||"").replace(/[()]/g,"");if(pairMap[p][r]!==undefined)pairMap[p][r]++;});
+  var checkData=actual.filter(function(t){return t.checkRate;}).map(function(t){return{label:t.date,value:parseInt(t.checkRate)||0};});
+  var pieSlices=[{value:rc.W,color:"#22c55e"},{value:rc.L,color:"#ef4444"},{value:rc.BE,color:"#f59e0b"}].filter(function(d){return d.value>0;});
+  var legend=[{n:"W",c:"#22c55e",v:rc.W},{n:"L",c:"#ef4444",v:rc.L},{n:"BE",c:"#f59e0b",v:rc.BE}].map(function(d){return'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><div style="width:8px;height:8px;background:'+d.c+';border-radius:50%;"></div><span style="font-size:11px;color:#94a3b8;">'+d.n+'</span><span style="font-size:14px;color:#e2e8f0;font-weight:700;margin-left:4px;">'+d.v+'</span></div>';}).join("");
+  var setupArr=[];for(var k in setupMap)setupArr.push(setupMap[k]);
+  var pairArr=[];for(var k in pairMap)pairArr.push(pairMap[k]);
+  return'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">'+
+    '<div class="chart-card"><div class="chart-title">Result Breakdown</div><div style="display:flex;align-items:center;gap:20px;">'+svgDonut(pieSlices,120)+'<div>'+legend+'<div style="font-size:10px;color:#475569;margin-top:4px;">Total: '+total+'</div></div></div></div>'+
+    '<div class="chart-card"><div class="chart-title">Rule Compliance</div><div style="font-size:34px;font-weight:900;color:'+compColor+';">'+compRate+'<span style="font-size:16px;color:#64748b;">%</span></div><div style="background:#1e293b;height:6px;border-radius:3px;margin:10px 0;"><div style="height:6px;border-radius:3px;width:'+compRate+'%;background:'+compColor+';"></div></div><div style="font-size:10px;color:#475569;">'+comply+' / '+total+' rule-compliant</div></div>'+
+    '</div>'+
+    '<div class="chart-card"><div class="chart-title">Setup Performance</div>'+(setupArr.length?svgBarChart(setupArr,["W","L","BE"],["#22c55e","#ef4444","#f59e0b"]):'<div class="empty">NO DATA</div>')+'</div>'+
+    '<div class="chart-card"><div class="chart-title">Pair Performance</div>'+(pairArr.length?svgBarChart(pairArr,["W","L","BE"],["#22c55e","#ef4444","#f59e0b"]):'<div class="empty">NO DATA</div>')+'</div>'+
+    (checkData.length>1?'<div class="chart-card"><div class="chart-title">Check Rate Trend</div>'+svgLine(checkData)+'</div>':"");
+}
+
+function renderList(){
+  var sec=state.section,pair=state.activePair,data=state.data;
+  var hdr=function(c,l){return'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><span style="font-size:9px;color:#475569;letter-spacing:3px;text-transform:uppercase;">'+c+' '+l+'</span><button class="btn-primary" onclick="openNew()">+ NEW</button></div>';};
+  if(sec==="daily"){
+    var list=data.daily[pair]||[];
+    return hdr(list.length,"ENTRIES")+(list.length===0?'<div class="empty">NO ENTRIES</div>':list.map(function(e,i){return'<div class="card" onclick="openDetail('+i+')"><div style="display:grid;grid-template-columns:70px 1fr 1fr 110px;gap:12px;align-items:center;"><span style="font-size:13px;color:#f59e0b;letter-spacing:1px;">'+e.date+'</span><span style="font-size:10px;color:'+candleColor(e.pDCandle)+';">'+candleIcon(e.pDCandle)+' '+(e.pDCandle||"—")+'</span><span style="font-size:10px;color:#64748b;">H4: '+(e.h4Candle||"—")+'</span>'+(e.bias?'<span style="font-size:8px;letter-spacing:1px;font-weight:700;text-align:center;padding:2px 8px;background:'+biasColor(e.bias)+';color:#0a0a0f;text-transform:uppercase;">'+e.bias+'</span>':'<span></span>')+'</div></div>';}).join(""));
+  }
+  if(sec==="weekly"){
+    var list=data.weekly||[];
+    return hdr(list.length,"WEEKS")+(list.length===0?'<div class="empty">NO ENTRIES</div>':list.map(function(e,i){return'<div class="card" onclick="openDetail('+i+')"><div style="display:grid;grid-template-columns:100px 1fr 1fr;gap:12px;align-items:center;"><span style="font-size:13px;color:#f59e0b;letter-spacing:1px;">'+e.week+'</span><span style="font-size:10px;color:#64748b;">GOLD: '+(e.goldBias||"—")+'</span><span style="font-size:10px;color:#64748b;">NAS: '+(e.nasBias||"—")+'</span></div></div>';}).join(""));
+  }
+  if(sec==="trades"){
+    var list=data.trades||[];
+    // 日付を数値化してソート（新しい順）
+    function dateVal(d){var m=String(d||"").match(/(\d+)\/(\d+)/);return m?(parseInt(m[1])*100+parseInt(m[2])):0;}
+    var sorted=list.slice().sort(function(a,b){return dateVal(b.date)-dateVal(a.date);});
+    // openDetailはsortedのインデックスではなくoriginal配列のインデックスが必要
+    return hdr(list.length,"TRADES")+(list.length===0?'<div class="empty">NO ENTRIES</div>':sorted.map(function(e){var i=list.indexOf(e);return'<div class="card" onclick="openDetail('+i+')"><div style="display:grid;grid-template-columns:70px 50px 80px 65px 1fr 50px 50px 30px;gap:10px;align-items:center;"><span style="font-size:12px;color:#f59e0b;letter-spacing:1px;">'+e.date+'</span><span style="font-size:10px;color:#64748b;">'+( e.time||"")+'</span><span style="font-size:10px;color:#94a3b8;">'+(e.pair||"—")+'</span><span style="font-size:10px;color:#64748b;">'+(e.setup||"—")+'</span><span style="font-size:10px;color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(e.entryType||"—")+'</span><span style="font-size:10px;color:#64748b;">'+(e.checkRate?e.checkRate+"pt":"—")+'</span><span style="font-size:10px;font-weight:700;color:'+resultColor(e.result)+';">'+(e.result||"—")+'</span><span style="font-size:13px;">'+(e.ruleFollow||"")+'</span></div></div>';}).join(""));
+  }
+  return"";
+}
+
+function renderForm(){
+  var sec=state.section,ei=state.editItem;
+  if(!ei)return"";
+  var topBar='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;"><button class="btn-secondary" onclick="setState({view:\'list\'})">← CANCEL</button><button class="btn-primary" onclick="doSave()">SAVE</button></div>';
+  var L=function(t){return'<label class="lbl">'+t+'</label>';};
+  var I=function(k,v,x){return'<input class="inp" value="'+esc(v||"")+'" oninput="updateEdit(\''+k+'\',this.value)" '+(x||"")+'>';};
+  var T=function(k,v){return'<textarea class="inp" rows="2" style="resize:vertical;" oninput="updateEdit(\''+k+'\',this.value)">'+esc(v||"")+'</textarea>';};
+  var S=function(k,opts,v){return'<select class="inp" style="cursor:pointer;" onchange="updateEdit(\''+k+'\',this.value)">'+opts.map(function(o){return'<option value="'+o+'"'+(v===o?" selected":"")+'>'+o+'</option>';}).join("")+'</select>';};
+  var BB=function(k,v){return'<div style="display:flex;flex-wrap:wrap;gap:6px;">'+BIAS_OPT.map(function(o){return'<button class="bias-btn" style="border-color:'+(v===o?biasColor(o):"#1e293b")+';background:'+(v===o?biasColor(o):"transparent")+';color:'+(v===o?"#0a0a0f":"#475569")+';" onclick="updateEdit(\''+k+'\',\''+o+'\');render();">'+o+'</button>';}).join("")+'</div>';};
+  var dfl=function(k){for(var i=0;i<DAILY_FIELDS.length;i++){if(DAILY_FIELDS[i].key===k)return DAILY_FIELDS[i].label;}return k;};
+  var wfl=function(k){for(var i=0;i<WEEKLY_FIELDS.length;i++){if(WEEKLY_FIELDS[i].key===k)return WEEKLY_FIELDS[i].label;}return k;};
+
+  if(sec==="daily"){
+    var eKey=imgKey("daily",state.activePair,ei.date||"new");
+    return topBar+
+      '<div style="margin-bottom:20px;">'+L("Date")+I("date",ei.date,'style="width:120px;"')+'</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;"><div>'+L("pD Candle")+S("pDCandle",[""].concat(CANDLE_OPT),ei.pDCandle)+'</div><div>'+L("H4 Candle")+S("h4Candle",[""].concat(CANDLE_OPT),ei.h4Candle)+'</div></div>'+
+      ["pDClose","h4Close","h1Structure","m30Structure"].map(function(k){return'<div style="margin-bottom:10px;">'+L(dfl(k))+T(k,ei[k])+'</div>';}).join("")+
+      '<div style="margin-bottom:14px;">'+L("Bias")+BB("bias",ei.bias)+'</div>'+
+      ["tradeIdea1","tradeIdea2","tradeIdea3","tradeIdea4","chart"].map(function(k){return'<div style="margin-bottom:10px;">'+L(dfl(k))+T(k,ei[k])+'</div>';}).join("")+
+      imgUploadBtn(eKey);
+  }
+  if(sec==="weekly"){
+    var eKey=imgKey("weekly","",ei.week||"new");
+    return topBar+
+      '<div style="margin-bottom:20px;">'+L("Week (e.g. W3/10)")+I("week",ei.week,'style="width:140px;"')+'</div>'+
+      '<div style="margin-bottom:14px;">'+L("Weekly Bias")+BB("weekBias",ei.weekBias)+'</div>'+
+      ["goldBias","nasBias","keyLevels","outlook","notes"].map(function(k){return'<div style="margin-bottom:10px;">'+L(wfl(k))+T(k,ei[k])+'</div>';}).join("")+
+      imgUploadBtn(eKey);
+  }
+  if(sec==="trades"){
+    var eKey=imgKey("trade","",ei.date+"__"+(ei._id>=0?ei._id:"new"));
+    var RB=RESULT_OPT.map(function(o){return'<button class="result-btn" style="border-color:'+(ei.result===o?resultColor(o):"#1e293b")+';background:'+(ei.result===o?resultColor(o):"transparent")+';color:'+(ei.result===o?"#0a0a0f":"#475569")+';" onclick="updateEdit(\'result\',\''+o+'\');render();">'+o+'</button>';}).join("");
+    return topBar+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;"><div>'+L("日付")+I("date",ei.date)+'</div><div>'+L("通貨")+S("pair",["XAUUSD","NASDAQ","US30",""],ei.pair)+'</div><div>'+L("セットアップ")+S("setup",SETUP_OPT,ei.setup)+'</div></div>'+
+      '<div style="margin-bottom:12px;display:flex;align-items:center;gap:12px;">'+L("時間帯 (HH:MM)")+'<input id="trade-time-inp" class="inp" type="text" inputmode="decimal" placeholder="例: 15:30" value="'+esc(ei.time||"")+'" oninput="updateEdit(\'time\',this.value)" style="width:110px;"></div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px;"><div>'+L("TS1確定足")+I("ts1Size",ei.ts1Size,'placeholder="大/中/小"')+'</div><div>'+L("エントリー")+S("entryType",ENTRY_OPT,ei.entryType)+'</div><div>'+L("ルール遵守")+S("ruleFollow",RULE_OPT,ei.ruleFollow)+'</div><div>'+L("チェック率")+I("checkRate",ei.checkRate,'placeholder="0-20"')+'</div></div>'+
+      '<div style="margin-bottom:12px;">'+L("勝敗")+'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">'+RB+'</div></div>'+
+      '<div style="margin-bottom:12px;">'+L("メモ")+T("memo",ei.memo)+'</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">'+
+      '<div><label class="lbl" style="color:#22c55e;">✓ 良かった点</label>'+T("good",ei.good)+'</div>'+
+      '<div><label class="lbl" style="color:#ef4444;">✗ 悪かった点</label>'+T("bad",ei.bad)+'</div>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;"><div>'+L("リンク 1")+I("link1",ei.link1,'placeholder="https://..."')+'</div><div>'+L("リンク 2")+I("link2",ei.link2,'placeholder="https://..."')+'</div></div>'+
+      imgUploadBtn(eKey);
+  }
+  return"";
+}
+
+function renderDetail(){
+  var sec=state.section,e=state.detailItem,idx=state.detailIdx,pair=state.activePair;
+  if(!e)return"";
+  var topBar='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;"><button class="btn-secondary" onclick="setState({view:\'list\'})">← BACK</button><div style="display:flex;gap:8px;"><button class="btn-secondary" onclick="openEdit()">EDIT</button><button class="btn-danger" onclick="doDelete()">DELETE</button></div></div>';
+  var F=function(label,value){return value?'<div class="field-box"><div class="lbl">'+label+'</div><div style="font-size:12px;color:#cbd5e1;white-space:pre-wrap;">'+esc(value)+'</div></div>':"";};
+  if(sec==="daily"){
+    var eKey=imgKey("daily",pair,e.date);
+    return topBar+
+      '<div style="margin-bottom:20px;"><span style="font-size:26px;color:#f59e0b;letter-spacing:2px;">'+e.date+'</span><span style="margin-left:12px;font-size:10px;color:#475569;letter-spacing:3px;">'+pair+'</span></div>'+
+      (e.bias?'<div style="display:inline-block;padding:4px 14px;background:'+biasColor(e.bias)+';color:#0a0a0f;font-size:10px;letter-spacing:2px;font-weight:700;text-transform:uppercase;margin-bottom:20px;">'+e.bias+'</div>':"")+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">'+
+      F("pD Candle",candleIcon(e.pDCandle)+" "+e.pDCandle)+F("pD Close",e.pDClose)+
+      F("H4 Candle",candleIcon(e.h4Candle)+" "+e.h4Candle)+F("H4 Close",e.h4Close)+
+      F("H1 Structure",e.h1Structure)+F("M30 Structure",e.m30Structure)+'</div>'+
+      [1,2,3,4].map(function(n){return e["tradeIdea"+n]?'<div style="padding:12px 14px;background:#0d1117;border:1px solid #1e293b;margin-bottom:6px;display:flex;gap:12px;"><span style="font-size:9px;color:#f59e0b;min-width:16px;">#'+n+'</span><span style="font-size:12px;color:#cbd5e1;white-space:pre-wrap;">'+esc(e["tradeIdea"+n])+'</span></div>':"";}).join("")+
+      F("Chart Notes",e.chart)+
+      renderUploadedImages(eKey);
+  }
+  if(sec==="weekly"){
+    var eKey=imgKey("weekly","",e.week);
+    return topBar+
+      '<div style="margin-bottom:20px;"><span style="font-size:26px;color:#f59e0b;letter-spacing:2px;">'+e.week+'</span></div>'+
+      (e.weekBias?'<div style="display:inline-block;padding:4px 14px;background:'+biasColor(e.weekBias)+';color:#0a0a0f;font-size:10px;letter-spacing:2px;font-weight:700;text-transform:uppercase;margin-bottom:20px;">'+e.weekBias+'</div>':"")+
+      F("GOLD Bias",e.goldBias)+F("NASDAQ Bias",e.nasBias)+
+      F("Key S/R Levels",e.keyLevels)+F("Week Outlook",e.outlook)+F("Notes",e.notes)+
+      renderUploadedImages(eKey);
+  }
+  if(sec==="trades"){
+    var eKey=imgKey("trade","",e.date+"__"+idx);
+    return topBar+
+      '<div style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">'+
+      '<span style="font-size:22px;color:#f59e0b;letter-spacing:2px;">'+e.date+'</span>'+
+      (e.pair?'<span class="tag" style="background:#1e293b;color:#e2e8f0;">'+e.pair+'</span>':"")+
+      (e.setup?'<span class="tag" style="background:#334155;color:#e2e8f0;">'+e.setup+'</span>':"")+
+      (e.result?'<span class="tag" style="background:'+resultColor(e.result)+';color:#0a0a0f;">'+e.result+'</span>':"")+
+      (e.ruleFollow?'<span style="font-size:16px;">'+e.ruleFollow+'</span>':"")+'</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px;">'+F("エントリー種別",e.entryType)+F("チェック率",e.checkRate)+F("TS1確定足",e.ts1Size)+(e.time?'<div class="field-box"><div class="lbl">時間帯</div><div style="font-size:14px;color:#f59e0b;font-weight:700;">'+esc(e.time)+'</div></div>':"")+ '</div>'+
+      F("メモ",e.memo)+
+      (e.good||e.bad?'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">'+
+        (e.good?'<div class="field-box" style="border-color:#166534;"><div class="lbl" style="color:#22c55e;">✓ 良かった点</div><div style="font-size:12px;color:#86efac;white-space:pre-wrap;">'+esc(e.good)+'</div></div>':'')+
+        (e.bad?'<div class="field-box" style="border-color:#7f1d1d;"><div class="lbl" style="color:#ef4444;">✗ 悪かった点</div><div style="font-size:12px;color:#fca5a5;white-space:pre-wrap;">'+esc(e.bad)+'</div></div>':'')+
+      '</div>':"")+'</div>'+
+      '<div style="margin-top:16px;">'+renderUrlPreview(e.link1,1)+renderUrlPreview(e.link2,2)+'</div>'+
+      renderUploadedImages(eKey);
+  }
+  return"";
+}
+
+// Calculator
+var calc={pair:"MGC",accountBalance:"50000",riskPct:"1",slTicks:"",entryPrice:"",slPrice:"",contracts:""};
+var INSTRUMENTS={
+  MGC:{name:"Micro Gold",tickSize:0.10,tickValue:1.00,maxContracts:50,priceUnit:"$/oz"},
+  MNQ:{name:"Micro Nasdaq",tickSize:0.25,tickValue:0.50,maxContracts:50,priceUnit:"pts"}
+};
+function calcTicks(){
+  var ins=INSTRUMENTS[calc.pair];
+  if(calc.slTicks.trim())return parseFloat(calc.slTicks);
+  if(calc.entryPrice.trim()&&calc.slPrice.trim()){var d=Math.abs(parseFloat(calc.entryPrice)-parseFloat(calc.slPrice));if(!isNaN(d))return Math.round(d/ins.tickSize);}
+  return null;
+}
+// calcUpdateResults: 結果部分だけ更新（inputはそのまま保持）
+function calcUpdateResults(){
+  var ins=INSTRUMENTS[calc.pair];
+  var balance=parseFloat(calc.accountBalance)||0;
+  var riskPct=parseFloat(calc.riskPct)||0;
+  var riskUSD=balance*riskPct/100;
+  var ticks=calcTicks();
+  var slPC=ticks!=null?ticks*ins.tickValue:null;
+  var optC=slPC?Math.floor(riskUSD/slPC):null;
+  var capped=optC!=null?Math.min(optC,ins.maxContracts):null;
+  var actualRisk=(capped!=null&&slPC!=null)?capped*slPC:null;
+  var manC=calc.contracts.trim()?parseInt(calc.contracts):null;
+  var manRisk=(manC&&slPC)?manC*slPC:null;
+  var overLimit=optC!=null&&optC>ins.maxContracts;
+  var row=function(l,v,c){return'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#0d1117;border:1px solid #1e293b;margin-bottom:4px;"><span style="font-size:10px;color:#475569;letter-spacing:1px;">'+l+'</span><span style="font-size:13px;font-weight:700;color:'+(c||"#e2e8f0")+';">'+v+'</span></div>';};
+  var simRows=(capped&&slPC)?[{label:"1:1",rr:1},{label:"1:1.5",rr:1.5},{label:"1:2",rr:2},{label:"1:3",rr:3}].map(function(r){return{label:r.label,rr:r.rr,win:capped*slPC*r.rr,loss:capped*slPC};}):[];
+
+  // SL hint
+  var slHint=document.getElementById("calc-sl-hint");
+  if(slHint)slHint.innerHTML=ticks!=null?'→ SL = '+ticks+' ticks = $'+(ticks*ins.tickValue).toFixed(2)+'/contract':"";
+
+  // Results block
+  var resEl=document.getElementById("calc-results");
+  if(resEl){
+    var h=row("Risk Amount (USD)","$"+riskUSD.toFixed(2),"#e2e8f0");
+    if(slPC!=null)h+=row("SL ($/contract)","$"+slPC.toFixed(2));
+    if(capped!=null)h+=row("最適コントラクト数",capped+" contracts",overLimit?"#f59e0b":"#22c55e");
+    if(overLimit)h+='<div style="padding:8px 14px;background:#451a03;border:1px solid #92400e;font-size:10px;color:#f59e0b;margin-bottom:4px;">⚠ 理論値 '+optC+' → Topstep上限により '+ins.maxContracts+' にキャップ</div>';
+    if(actualRisk!=null)h+=row("実際のリスク額","$"+actualRisk.toFixed(2)+(overLimit?" (上限適用後)":""),overLimit?"#f87171":"#94a3b8");
+    resEl.innerHTML=h;
+  }
+
+  // Manual check result
+  var manEl=document.getElementById("calc-manual-result");
+  if(manEl){
+    var mh="";
+    if(manRisk!=null)mh+='<div style="font-size:12px;color:'+(manRisk>riskUSD?"#f87171":"#22c55e")+';">リスク: <strong>$'+manRisk.toFixed(2)+'</strong> '+(manRisk>riskUSD?"⚠ 超過":"✓ OK")+'</div>';
+    if(manC&&manC>ins.maxContracts)mh+='<div style="font-size:10px;color:#f87171;">⚠ Topstep上限 ('+ins.maxContracts+') 超過</div>';
+    manEl.innerHTML=mh;
+  }
+
+  // Sim table
+  var simEl=document.getElementById("calc-sim");
+  if(simEl){
+    if(simRows.length){
+      var sh='<div class="lbl" style="margin-bottom:10px;">損益シミュレーション ('+capped+' contracts)</div>';
+      sh+='<div style="border:1px solid #1e293b;overflow:hidden;"><div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;background:#0d1117;padding:8px 14px;border-bottom:1px solid #1e293b;"><span style="font-size:9px;color:#475569;letter-spacing:2px;">RR</span><span style="font-size:9px;color:#475569;letter-spacing:2px;">WIN</span><span style="font-size:9px;color:#475569;letter-spacing:2px;">LOSS</span><span style="font-size:9px;color:#475569;letter-spacing:2px;">WIN RATE NEEDED</span></div>';
+      simRows.forEach(function(r){sh+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;padding:10px 14px;border-bottom:1px solid #1e293b;align-items:center;"><span style="font-size:11px;color:#94a3b8;">'+r.label+'</span><span style="font-size:12px;color:#22c55e;font-weight:700;">+$'+r.win.toFixed(0)+'</span><span style="font-size:12px;color:#ef4444;font-weight:700;">-$'+r.loss.toFixed(0)+'</span><span style="font-size:11px;color:#64748b;">'+Math.round(1/(1+r.rr)*100)+'%</span></div>';});
+      sh+='</div>';
+      simEl.innerHTML=sh;
+    }else{
+      simEl.innerHTML="";
+    }
+  }
+}
+
+// renderCalc: 全体（input含む）を初期描画。ペア切替時にも呼ぶ
+function renderCalc(){
+  var ins=INSTRUMENTS[calc.pair];
+  var lbl=function(t){return'<label class="lbl">'+t+'</label>';};
+  var inp=function(id,ph){return'<input class="inp" type="text" inputmode="decimal" autocomplete="off" id="calc-inp-'+id+'" value="'+esc(calc[id])+'" placeholder="'+ph+'" oninput="calc[\''+id+'\']=this.value;calcUpdateResults();" style="text-align:right;">';};
+  var pairBtns=Object.keys(INSTRUMENTS).map(function(k){return'<button onclick="calc.pair=\''+k+'\';calc.slTicks=\'\';calc.entryPrice=\'\';calc.slPrice=\'\';renderCalc();" style="padding:8px 20px;border:1px solid;border-color:'+(calc.pair===k?"#f59e0b":"#1e293b")+';background:'+(calc.pair===k?"#f59e0b":"transparent")+';color:'+(calc.pair===k?"#0a0a0f":"#475569")+';font-size:10px;letter-spacing:2px;cursor:pointer;font-weight:700;">'+k+'</button>';}).join("");
+  var h='<div style="max-width:640px;">';
+  h+='<div style="margin-bottom:20px;">'+lbl("Instrument")+'<div style="display:flex;gap:8px;">'+pairBtns+'</div><div style="margin-top:6px;font-size:10px;color:#334155;letter-spacing:1px;">'+ins.name+' · tick '+ins.tickSize+' '+ins.priceUnit+' = $'+ins.tickValue.toFixed(2)+' · max '+ins.maxContracts+' micros (50K)</div></div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;"><div>'+lbl("Account Balance ($)")+inp("accountBalance","50000")+'</div><div>'+lbl("Risk (%)")+inp("riskPct","1.0")+'</div></div>';
+  h+='<div style="background:#0d1117;border:1px solid #1e293b;padding:16px;margin-bottom:20px;"><div class="lbl" style="margin-bottom:12px;">SL幅の入力（どちらか一方でOK）</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;"><div>'+lbl("SL Ticks 直接入力")+inp("slTicks","例: 40")+'</div><div>'+lbl("Entry Price")+inp("entryPrice","例: 2950.0")+'</div><div>'+lbl("SL Price")+inp("slPrice","例: 2946.0")+'</div></div><div id="calc-sl-hint" style="margin-top:10px;font-size:11px;color:#f59e0b;"></div></div>';
+  h+='<div style="margin-bottom:20px;"><div class="lbl" style="margin-bottom:10px;">計算結果</div><div id="calc-results"></div></div>';
+  h+='<div style="background:#0d1117;border:1px solid #1e293b;padding:16px;margin-bottom:20px;"><div class="lbl" style="margin-bottom:10px;">任意のコントラクト数でチェック</div><div style="display:grid;grid-template-columns:200px 1fr;gap:12px;align-items:end;"><div>'+lbl("Contracts")+inp("contracts","例: 3")+'</div><div id="calc-manual-result" style="padding-bottom:2px;"></div></div></div>';
+  h+='<div id="calc-sim"></div>';
+  h+='</div>';
+  document.getElementById("calc-root").innerHTML=h;
+  calcUpdateResults();
+}
+function renderInsights(){
+  var trades=state.data.trades||[];
+  var actual=trades.filter(function(t){return t.entryType==="エントリー"||t.entryType==="テスト";});
+  if(!actual.length)return'<div class="empty">事実ログにトレードを追加するとここに分析が表示されます</div>';
+
+  // Normalize result: W / L / BE
+  function baseResult(r){return(r||"").replace(/[()]/g,"");}
+
+  // Split good/bad text into bullet fragments (split by 。/、/・/\n)
+  function fragments(text){
+    if(!text)return[];
+    return text.split(/[。、・\n\/]+/).map(function(s){return s.trim();}).filter(function(s){return s.length>1;});
+  }
+
+  // Collect all entries for a given result bucket
+  function bucket(result){
+    return actual.filter(function(t){return baseResult(t.result)===result;});
+  }
+
+  // Frequency map of fragments from a field across a set of trades
+  function freqMap(tradeSet, field){
+    var map={};
+    tradeSet.forEach(function(t){
+      fragments(t[field]).forEach(function(f){
+        map[f]=(map[f]||0)+1;
+      });
+    });
+    return map;
+  }
+
+  // Sort map to array [{text,count}]
+  function sortedFreq(map){
+    return Object.keys(map).map(function(k){return{text:k,count:map[k]};}).sort(function(a,b){return b.count-a.count;});
+  }
+
+  var wins=bucket("W"), losses=bucket("L"), bes=bucket("BE");
+
+  // --- Section builder ---
+  function freqSection(title, color, bgColor, items, emptyMsg){
+    if(!items.length)return'<div style="font-size:10px;color:#334155;padding:8px 0;">'+emptyMsg+'</div>';
+    return items.slice(0,10).map(function(item){
+      var pct=Math.round((item.count/actual.length)*100);
+      var barW=Math.min(100,Math.round((item.count/items[0].count)*100));
+      return'<div style="margin-bottom:8px;">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">'+
+        '<span style="font-size:11px;color:#e2e8f0;flex:1;padding-right:8px;">'+esc(item.text)+'</span>'+
+        '<span style="font-size:10px;color:'+color+';font-weight:700;min-width:28px;text-align:right;">×'+item.count+'</span>'+
+        '</div>'+
+        '<div style="background:#1e293b;height:4px;border-radius:2px;">'+
+        '<div style="height:4px;border-radius:2px;width:'+barW+'%;background:'+color+';"></div>'+
+        '</div>'+
+        '</div>';
+    }).join("");
+  }
+
+  // Full trade list for a bucket
+  function tradeRows(tradeSet){
+    if(!tradeSet.length)return'<div style="font-size:10px;color:#334155;padding:8px 0;">なし</div>';
+    return tradeSet.map(function(t,i){
+      var rcolor=resultColor(t.result);
+      return'<div style="padding:10px 14px;background:#0d1117;border:1px solid #1e293b;margin-bottom:4px;">'+
+        '<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">'+
+        '<span style="font-size:12px;color:#f59e0b;">'+esc(t.date||"")+'</span>'+
+        (t.pair?'<span class="tag" style="background:#1e293b;color:#e2e8f0;">'+t.pair+'</span>':'')+
+        (t.setup?'<span class="tag" style="background:#334155;color:#e2e8f0;">'+t.setup+'</span>':'')+
+        '<span class="tag" style="background:'+rcolor+';color:#0a0a0f;">'+esc(t.result||"")+'</span>'+
+        (t.ruleFollow?'<span style="font-size:13px;">'+t.ruleFollow+'</span>':'')+
+        '</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">'+
+        (t.good?'<div style="padding:6px 10px;background:#052e16;border:1px solid #166534;border-radius:2px;"><div style="font-size:8px;color:#22c55e;letter-spacing:1px;margin-bottom:3px;">✓ 良かった点</div><div style="font-size:11px;color:#86efac;white-space:pre-wrap;">'+esc(t.good)+'</div></div>':'')+
+        (t.bad?'<div style="padding:6px 10px;background:#2d0a0a;border:1px solid #7f1d1d;border-radius:2px;"><div style="font-size:8px;color:#ef4444;letter-spacing:1px;margin-bottom:3px;">✗ 悪かった点</div><div style="font-size:11px;color:#fca5a5;white-space:pre-wrap;">'+esc(t.bad)+'</div></div>':'')+
+        '</div>'+
+        (t.memo?'<div style="margin-top:6px;font-size:10px;color:#475569;white-space:pre-wrap;">'+esc(t.memo)+'</div>':'')+
+        '</div>';
+    }).join("");
+  }
+
+  // Setup breakdown: win rate per setup
+  var setupMap={};
+  actual.forEach(function(t){
+    var s=(t.setup||"?").replace(/[()]/g,"");
+    if(!setupMap[s])setupMap[s]={W:0,L:0,BE:0,total:0};
+    var r=baseResult(t.result);
+    if(setupMap[s][r]!==undefined)setupMap[s][r]++;
+    setupMap[s].total++;
+  });
+
+  var setupRows=Object.keys(setupMap).map(function(s){
+    var d=setupMap[s];
+    var wr=d.total?Math.round(d.W/d.total*100):0;
+    return'<div style="display:grid;grid-template-columns:80px 36px 36px 36px 60px 1fr;gap:8px;align-items:center;padding:8px 14px;background:#0d1117;border:1px solid #1e293b;margin-bottom:3px;">'+
+      '<span style="font-size:11px;color:#e2e8f0;font-weight:700;">'+s+'</span>'+
+      '<span style="font-size:11px;color:#22c55e;text-align:center;">W:'+d.W+'</span>'+
+      '<span style="font-size:11px;color:#ef4444;text-align:center;">L:'+d.L+'</span>'+
+      '<span style="font-size:11px;color:#f59e0b;text-align:center;">BE:'+d.BE+'</span>'+
+      '<span style="font-size:12px;font-weight:700;color:'+(wr>=60?"#22c55e":wr>=40?"#f59e0b":"#ef4444")+';">'+wr+'%</span>'+
+      '<div style="background:#1e293b;height:5px;border-radius:3px;"><div style="height:5px;border-radius:3px;width:'+wr+'%;background:'+(wr>=60?"#22c55e":wr>=40?"#f59e0b":"#ef4444")+';"></div></div>'+
+      '</div>';
+  }).join("");
+
+  // 曜日計算（2026年固定）
+  var DOW_NAMES=["日","月","火","水","木","金","土"];
+  var DOW_EN=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  function getDow(dateStr){
+    var m=String(dateStr||"").match(/(\d+)\/(\d+)/);
+    if(!m)return-1;
+    var d=new Date(2026,parseInt(m[1])-1,parseInt(m[2]));
+    return d.getDay(); // 0=Sun
+  }
+
+  // 曜日別集計（エントリー＋テストのみ）
+  var dowMap={};
+  for(var di=0;di<7;di++)dowMap[di]={W:0,L:0,BE:0,total:0};
+  actual.forEach(function(t){
+    var dow=getDow(t.date);
+    if(dow<0)return;
+    var r=baseResult(t.result);
+    if(dowMap[dow][r]!==undefined)dowMap[dow][r]++;
+    dowMap[dow].total++;
+  });
+
+  var maxDowTotal=1;
+  for(var di=0;di<7;di++){if(dowMap[di].total>maxDowTotal)maxDowTotal=dowMap[di].total;}
+
+  var dowRows=[1,2,3,4,5].map(function(di){ // 月〜金
+    var d=dowMap[di];
+    if(!d.total)return'<div style="display:grid;grid-template-columns:40px 1fr;gap:12px;align-items:center;padding:8px 14px;background:#0d1117;border:1px solid #0d1117;margin-bottom:3px;opacity:0.3;">'+
+      '<span style="font-size:13px;font-weight:700;color:#334155;">'+DOW_NAMES[di]+'</span>'+
+      '<span style="font-size:10px;color:#334155;">0件</span></div>';
+    var wr=Math.round(d.W/d.total*100);
+    var wrColor=wr>=60?"#22c55e":wr>=40?"#f59e0b":"#ef4444";
+    var barW=Math.round(d.total/maxDowTotal*100);
+    return'<div style="padding:10px 14px;background:#0d1117;border:1px solid #1e293b;margin-bottom:3px;">'+
+      '<div style="display:grid;grid-template-columns:40px 36px 36px 36px 54px 1fr;gap:8px;align-items:center;margin-bottom:6px;">'+
+      '<span style="font-size:15px;font-weight:900;color:#e2e8f0;">'+DOW_NAMES[di]+'</span>'+
+      '<span style="font-size:11px;color:#22c55e;">W:'+d.W+'</span>'+
+      '<span style="font-size:11px;color:#ef4444;">L:'+d.L+'</span>'+
+      '<span style="font-size:11px;color:#f59e0b;">BE:'+d.BE+'</span>'+
+      '<span style="font-size:13px;font-weight:700;color:'+wrColor+';">'+wr+'%</span>'+
+      '<span style="font-size:10px;color:#475569;">'+d.total+'件</span>'+
+      '</div>'+
+      '<div style="display:flex;gap:2px;height:8px;">'+
+      '<div style="height:8px;border-radius:2px 0 0 2px;background:#22c55e;width:'+(d.total?Math.round(d.W/d.total*100):0)+'%;"></div>'+
+      '<div style="height:8px;background:#ef4444;width:'+(d.total?Math.round(d.L/d.total*100):0)+'%;"></div>'+
+      '<div style="height:8px;border-radius:0 2px 2px 0;background:#f59e0b;width:'+(d.total?Math.round(d.BE/d.total*100):0)+'%;"></div>'+
+      '</div>'+
+      '</div>';
+  }).join("");
+
+  // 時間帯別集計（HH:MM → HH時台でグループ）
+  var timeMap={};
+  actual.forEach(function(t){
+    if(!t.time)return;
+    var hm=String(t.time).match(/(\d{1,2}):(\d{2})/);
+    if(!hm)return;
+    var h=parseInt(hm[1]);
+    var key=h+"時台";
+    if(!timeMap[key])timeMap[key]={W:0,L:0,BE:0,total:0,hour:h};
+    var r=baseResult(t.result);
+    if(timeMap[key][r]!==undefined)timeMap[key][r]++;
+    timeMap[key].total++;
+  });
+  var timeSlots=Object.keys(timeMap).sort(function(a,b){return timeMap[a].hour-timeMap[b].hour;});
+  var maxTimeTotal=1;
+  timeSlots.forEach(function(k){if(timeMap[k].total>maxTimeTotal)maxTimeTotal=timeMap[k].total;});
+
+  var timeRows=timeSlots.length?timeSlots.map(function(k){
+    var d=timeMap[k];
+    var wr=Math.round(d.W/d.total*100);
+    var wrColor=wr>=60?"#22c55e":wr>=40?"#f59e0b":"#ef4444";
+    return'<div style="padding:10px 14px;background:#0d1117;border:1px solid #1e293b;margin-bottom:3px;">'+
+      '<div style="display:grid;grid-template-columns:60px 36px 36px 36px 54px 1fr;gap:8px;align-items:center;margin-bottom:6px;">'+
+      '<span style="font-size:14px;font-weight:900;color:#e2e8f0;">'+k+'</span>'+
+      '<span style="font-size:11px;color:#22c55e;">W:'+d.W+'</span>'+
+      '<span style="font-size:11px;color:#ef4444;">L:'+d.L+'</span>'+
+      '<span style="font-size:11px;color:#f59e0b;">BE:'+d.BE+'</span>'+
+      '<span style="font-size:13px;font-weight:700;color:'+wrColor+';">'+wr+'%</span>'+
+      '<span style="font-size:10px;color:#475569;">'+d.total+'件</span>'+
+      '</div>'+
+      '<div style="display:flex;gap:2px;height:8px;">'+
+      '<div style="height:8px;border-radius:2px 0 0 2px;background:#22c55e;width:'+(d.total?Math.round(d.W/d.total*100):0)+'%;"></div>'+
+      '<div style="height:8px;background:#ef4444;width:'+(d.total?Math.round(d.L/d.total*100):0)+'%;"></div>'+
+      '<div style="height:8px;border-radius:0 2px 2px 0;background:#f59e0b;width:'+(d.total?Math.round(d.BE/d.total*100):0)+'%;"></div>'+
+      '</div></div>';
+  }).join(""):'<div style="font-size:10px;color:#334155;padding:12px 0;">時間帯データなし（事実ログに時間帯を入力してください）</div>';
+
+  // 月別集計
+  var monthMap={};
+  var MONTH_NAMES=["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+  actual.forEach(function(t){
+    var m=String(t.date||"").match(/(\d+)\/(\d+)/);
+    if(!m)return;
+    var mo=parseInt(m[1]);
+    var key=mo+"月";
+    if(!monthMap[key])monthMap[key]={W:0,L:0,BE:0,total:0,month:mo,ruleOk:0,ruleTotal:0};
+    var r=baseResult(t.result);
+    if(monthMap[key][r]!==undefined)monthMap[key][r]++;
+    monthMap[key].total++;
+    if(t.ruleFollow==="⭕️"){monthMap[key].ruleOk++;monthMap[key].ruleTotal++;}
+    else if(t.ruleFollow==="❌"){monthMap[key].ruleTotal++;}
+  });
+  var monthKeys=Object.keys(monthMap).sort(function(a,b){return monthMap[a].month-monthMap[b].month;});
+
+  var monthRows=monthKeys.length?monthKeys.map(function(k){
+    var d=monthMap[k];
+    var wr=Math.round(d.W/d.total*100);
+    var wrColor=wr>=60?"#22c55e":wr>=40?"#f59e0b":"#ef4444";
+    var rr=d.ruleTotal?Math.round(d.ruleOk/d.ruleTotal*100):null;
+    var rrColor=rr!==null?(rr>=80?"#22c55e":rr>=60?"#f59e0b":"#ef4444"):"#475569";
+    return'<div style="padding:12px 16px;background:#0d1117;border:1px solid #1e293b;margin-bottom:4px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'+
+      '<span style="font-size:16px;font-weight:900;color:#e2e8f0;">'+k+'</span>'+
+      '<span style="font-size:10px;color:#475569;">'+d.total+'件</span>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:8px;">'+
+      '<div style="text-align:center;padding:6px;background:#111827;border-radius:2px;"><div style="font-size:9px;color:#475569;letter-spacing:1px;margin-bottom:2px;">W</div><div style="font-size:16px;font-weight:700;color:#22c55e;">'+d.W+'</div></div>'+
+      '<div style="text-align:center;padding:6px;background:#111827;border-radius:2px;"><div style="font-size:9px;color:#475569;letter-spacing:1px;margin-bottom:2px;">L</div><div style="font-size:16px;font-weight:700;color:#ef4444;">'+d.L+'</div></div>'+
+      '<div style="text-align:center;padding:6px;background:#111827;border-radius:2px;"><div style="font-size:9px;color:#475569;letter-spacing:1px;margin-bottom:2px;">BE</div><div style="font-size:16px;font-weight:700;color:#f59e0b;">'+d.BE+'</div></div>'+
+      '<div style="text-align:center;padding:6px;background:#111827;border-radius:2px;"><div style="font-size:9px;color:#475569;letter-spacing:1px;margin-bottom:2px;">勝率</div><div style="font-size:16px;font-weight:700;color:'+wrColor+';">'+wr+'%</div></div>'+
+      '<div style="text-align:center;padding:6px;background:#111827;border-radius:2px;"><div style="font-size:9px;color:#475569;letter-spacing:1px;margin-bottom:2px;">遵守</div><div style="font-size:16px;font-weight:700;color:'+rrColor+';">'+(rr!==null?rr+"%":"—")+'</div></div>'+
+      '</div>'+
+      '<div style="display:flex;gap:2px;height:8px;">'+
+      '<div style="height:8px;border-radius:2px 0 0 2px;background:#22c55e;width:'+(d.total?Math.round(d.W/d.total*100):0)+'%;"></div>'+
+      '<div style="height:8px;background:#ef4444;width:'+(d.total?Math.round(d.L/d.total*100):0)+'%;"></div>'+
+      '<div style="height:8px;border-radius:0 2px 2px 0;background:#f59e0b;width:'+(d.total?Math.round(d.BE/d.total*100):0)+'%;"></div>'+
+      '</div>'+
+      '</div>';
+  }).join(""):'<div style="font-size:10px;color:#334155;padding:12px 0;">データなし</div>';
+
+  var card=function(title,color,content){
+    return'<div class="chart-card" style="border-color:'+color+'22;">'+
+      '<div class="chart-title" style="color:'+color+';">'+title+'</div>'+
+      content+'</div>';
+  };
+
+  var lossGoodFreq=sortedFreq(freqMap(losses,"good"));
+  var lossBadFreq=sortedFreq(freqMap(losses,"bad"));
+  var winGoodFreq=sortedFreq(freqMap(wins,"good"));
+  var winBadFreq=sortedFreq(freqMap(wins,"bad"));
+
+  // Stats bar
+  var statsBar='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px;">'+
+    ['<div style="text-align:center;padding:14px;background:#0d1117;border:1px solid #1e293b;"><div style="font-size:22px;font-weight:900;color:#22c55e;">'+wins.length+'</div><div style="font-size:9px;color:#475569;letter-spacing:2px;margin-top:4px;">WIN</div></div>',
+     '<div style="text-align:center;padding:14px;background:#0d1117;border:1px solid #1e293b;"><div style="font-size:22px;font-weight:900;color:#ef4444;">'+losses.length+'</div><div style="font-size:9px;color:#475569;letter-spacing:2px;margin-top:4px;">LOSS</div></div>',
+     '<div style="text-align:center;padding:14px;background:#0d1117;border:1px solid #1e293b;"><div style="font-size:22px;font-weight:900;color:#f59e0b;">'+bes.length+'</div><div style="font-size:9px;color:#475569;letter-spacing:2px;margin-top:4px;">BE</div></div>',
+     '<div style="text-align:center;padding:14px;background:#0d1117;border:1px solid #1e293b;"><div style="font-size:22px;font-weight:900;color:#e2e8f0;">'+(actual.length?Math.round(wins.length/actual.length*100):0)+'%</div><div style="font-size:9px;color:#475569;letter-spacing:2px;margin-top:4px;">WIN RATE</div></div>'
+    ].join("")+'</div>';
+
+  return statsBar+
+    // 曜日別分析
+    '<div class="chart-card"><div class="chart-title">曜日別 トレード数 &amp; 勝率（月〜金）</div>'+
+    '<div style="font-size:9px;color:#334155;letter-spacing:1px;margin-bottom:12px;">■ W &nbsp;■ L &nbsp;■ BE</div>'+
+    dowRows+'</div>'+
+    '<div class="chart-card"><div class="chart-title">時間帯別 トレード数 &amp; 勝率</div>'+
+    '<div style="font-size:9px;color:#334155;letter-spacing:1px;margin-bottom:12px;">■ W &nbsp;■ L &nbsp;■ BE</div>'+
+    timeRows+'</div>'+
+    '<div class="chart-card"><div class="chart-title">月別 トレード数 &amp; 勝率</div>'+
+    '<div style="font-size:9px;color:#334155;letter-spacing:1px;margin-bottom:12px;">■ W &nbsp;■ L &nbsp;■ BE</div>'+
+    monthRows+'</div>'+
+    // Setup win rates
+    '<div class="chart-card"><div class="chart-title">セットアップ別 勝率</div>'+setupRows+'</div>'+
+    // AI Analysis card
+    (function(){
+      var saved=null;
+      try{var s=localStorage.getItem("fx-ai-analysis-v1");if(s)saved=JSON.parse(s);}catch(e){}
+      var savedHtml=saved
+        ?'<div style="font-size:11px;color:#cbd5e1;line-height:1.9;white-space:pre-wrap;">'+esc(saved.text)+'</div>'
+         +'<div style="margin-top:10px;font-size:9px;color:#334155;border-top:1px solid #1e293b;padding-top:8px;">更新日: '+esc(saved.date)+'</div>'
+        :'<div style="font-size:11px;color:#475569;">「プロンプトをコピー」を押してClaudeに貼り付け、回答を下の欄に貼り付けて保存してください。</div>';
+      return'<div class="chart-card" id="ai-card" style="border-color:#6366f144;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">'
+        +'<div>'
+        +'<div class="chart-title" style="color:#a5b4fc;">✦ AI パターン分析</div>'
+        +(saved?'<div style="font-size:9px;color:#334155;margin-top:2px;">更新日: '+esc(saved.date)+'</div>':'')
+        +'</div>'
+        +'<button onclick="aiAnalyze()" style="padding:6px 16px;background:#6366f1;border:none;color:#fff;font-size:10px;letter-spacing:2px;cursor:pointer;font-weight:700;">プロンプトをコピー</button>'
+        +'</div>'
+        +'<div id="ai-result" style="font-size:11px;color:#475569;line-height:1.9;">'+savedHtml+'</div>'
+        +'</div>';
+    })()+
+    // Loss patterns
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">'+
+    card('✗ 負け時の「悪かった点」 TOP パターン',"#ef4444",
+      lossBadFreq.length?freqSection("",  "#ef4444","#2d0a0a",lossBadFreq,"負けトレードに「悪かった点」が記入されていません")+
+      '<div style="margin-top:14px;border-top:1px solid #1e293b;padding-top:14px;"><div class="chart-title" style="color:#f59e0b;">同じく「良かった点」もあった</div>'+
+      freqSection("","#f59e0b","",lossGoodFreq,"なし")+'</div>'
+      :'<div style="font-size:10px;color:#334155;padding:8px 0;">負けトレードに記入なし</div>')+
+    card('✓ 勝ち時の「良かった点」 TOP パターン',"#22c55e",
+      winGoodFreq.length?freqSection("","#22c55e","",winGoodFreq,"勝ちトレードに「良かった点」が記入されていません")+
+      '<div style="margin-top:14px;border-top:1px solid #1e293b;padding-top:14px;"><div class="chart-title" style="color:#475569;">勝っても「悪かった点」</div>'+
+      freqSection("","#f59e0b","",winBadFreq,"なし")+'</div>'
+      :'<div style="font-size:10px;color:#334155;padding:8px 0;">勝ちトレードに記入なし</div>')+
+    '</div>'+
+    '<div class="chart-card" style="border-color:#7f1d1d22;"><div class="chart-title" style="color:#ef4444;">負けトレード 一覧 ('+losses.length+'件)</div>'+tradeRows(losses)+'</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">'+
+    '<div class="chart-card" style="border-color:#22c55e22;"><div class="chart-title" style="color:#22c55e;">勝ちトレード 一覧 ('+wins.length+'件)</div>'+tradeRows(wins)+'</div>'+
+    '<div class="chart-card" style="border-color:#f59e0b22;"><div class="chart-title" style="color:#f59e0b;">BE 一覧 ('+bes.length+'件)</div>'+tradeRows(bes)+'</div>'+
+    '</div>';
+}
+
+// ── AI Pattern Analysis ───────────────────────────────────────────────────────
+var AI_STORAGE_KEY="fx-ai-analysis-v1";
+
+window.aiAnalyze=function(){
+  var el=document.getElementById("ai-result");
+  if(!el)return;
+
+  var trades=state.data.trades||[];
+  var actual=trades.filter(function(t){
+    return t.entryType==="エントリー"||t.entryType==="テスト";
+  });
+  if(!actual.length){
+    el.style.color="#334155";
+    el.textContent="事実ログにトレードがありません。";
+    return;
+  }
+
+  var lines=actual.map(function(t){
+    var row="["+t.date+" "+(t.pair||"")+" "+(t.setup||"")+" "+(t.result||"")+"]";
+    if(t.memo)row+=" メモ:"+t.memo.replace(/\n/g," ");
+    if(t.good)row+=" 良:"+t.good.replace(/\n/g," ");
+    if(t.bad)row+=" 悪:"+t.bad.replace(/\n/g," ");
+    return row;
+  }).join("\n");
+
+  var prompt="以下は私のFXトレード記録です。\n\n"+lines+"\n\n"
+    +"この記録を読んで、以下を日本語で出力してください。\n\n"
+    +"【悪かった点 — 共通パターン TOP5】\n"
+    +"似たような失敗・悪い癖をグルーピングして要約。各グループに件数と短い具体例を添えて。\n\n"
+    +"【良かった点 — 共通パターン TOP5】\n"
+    +"似たような成功・良い習慣をグルーピングして要約。各グループに件数と短い具体例を添えて。\n\n"
+    +"【総合コメント】\n"
+    +"このトレーダーの課題と強みを2〜3文で。";
+
+  function showPasteUI(){
+    el.innerHTML=
+      '<div style="padding:16px;background:#0a0e15;border:1px solid #6366f144;">'
+      +'<div style="font-size:10px;color:#22c55e;letter-spacing:2px;margin-bottom:12px;">✓ プロンプトをコピーしました（'+actual.length+'件）</div>'
+      +'<div style="font-size:11px;color:#94a3b8;line-height:2.0;margin-bottom:14px;">'
+      +'① Claude.aiに貼り付けて送信<br>'
+      +'② 回答を下の欄に貼り付けて「保存」を押す'
+      +'</div>'
+      +'<div style="font-size:9px;color:#475569;letter-spacing:1px;margin-bottom:6px;">▼ Claudeの回答をここに貼り付け</div>'
+      +'<textarea id="ai-paste-area" class="inp" rows="10" style="width:100%;resize:vertical;font-size:11px;line-height:1.8;" placeholder="Claudeの分析結果をここに貼り付け..."></textarea>'
+      +'<button onclick="aiSaveResult()" style="margin-top:10px;width:100%;padding:10px;background:#6366f1;border:none;color:#fff;font-size:10px;letter-spacing:2px;cursor:pointer;font-weight:700;">保存する</button>'
+      +'<div id="ai-save-status" style="margin-top:8px;font-size:10px;color:#475569;"></div>'
+      +'</div>';
+  }
+
+  function showManualCopy(){
+    el.innerHTML=
+      '<div style="padding:16px;background:#0a0e15;border:1px solid #f59e0b44;">'
+      +'<div style="font-size:10px;color:#f59e0b;margin-bottom:8px;">自動コピーできませんでした。以下を全選択してコピー（Ctrl+A → Ctrl+C）</div>'
+      +'<textarea style="width:100%;height:80px;background:#111827;border:1px solid #334155;color:#94a3b8;font-size:10px;padding:8px;resize:vertical;" readonly onclick="this.select()">'+prompt.replace(/</g,"&lt;")+'</textarea>'
+      +'<div style="font-size:9px;color:#475569;letter-spacing:1px;margin:10px 0 6px;">▼ Claudeの回答をここに貼り付け</div>'
+      +'<textarea id="ai-paste-area" class="inp" rows="10" style="width:100%;resize:vertical;font-size:11px;line-height:1.8;" placeholder="Claudeの分析結果をここに貼り付け..."></textarea>'
+      +'<button onclick="aiSaveResult()" style="margin-top:10px;width:100%;padding:10px;background:#6366f1;border:none;color:#fff;font-size:10px;letter-spacing:2px;cursor:pointer;font-weight:700;">保存する</button>'
+      +'<div id="ai-save-status" style="margin-top:8px;font-size:10px;color:#475569;"></div>'
+      +'</div>';
+  }
+
+  navigator.clipboard.writeText(prompt)
+    .then(showPasteUI)
+    .catch(showManualCopy);
+};
+
+window.aiSaveResult=function(){
+  var area=document.getElementById("ai-paste-area");
+  var status=document.getElementById("ai-save-status");
+  if(!area)return;
+  var text=area.value.trim();
+  if(!text){
+    if(status){status.style.color="#f87171";status.textContent="テキストが空です。";}
+    return;
+  }
+  var now=new Date();
+  var dateStr=now.getFullYear()+"/"+(now.getMonth()+1)+"/"+now.getDate()
+    +" "+String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+  localStorage.setItem(AI_STORAGE_KEY,JSON.stringify({text:text,date:dateStr}));
+  if(status){status.style.color="#22c55e";status.textContent="✓ 保存しました（"+dateStr+"）";}
+  // 保存後に表示を更新
+  var el=document.getElementById("ai-result");
+  if(el){
+    setTimeout(function(){
+      el.innerHTML=
+        '<div style="font-size:11px;color:#cbd5e1;line-height:1.9;white-space:pre-wrap;">'+esc(text)+'</div>'
+        +'<div style="margin-top:10px;font-size:9px;color:#334155;border-top:1px solid #1e293b;padding-top:8px;">更新日: '+dateStr+'</div>'
+        +'<button onclick="aiAnalyze()" style="margin-top:10px;padding:6px 16px;background:transparent;border:1px solid #6366f1;color:#a5b4fc;font-size:10px;letter-spacing:1px;cursor:pointer;">再コピー（更新用）</button>';
+    },800);
+  }
+};
+
+window.renderCalc=renderCalc;
+
+// ── Checklist ─────────────────────────────────────────────────────────────────
+var CL_KEY="fx-checklist-v1";
+var CL_DEFAULT=[
+  {id:1, label:"時間帯 15:00–18:30か",              must:true,  note:"MUST"},
+  {id:2, label:"トレードするペアはXAUUSDか",          must:true,  note:""},
+  {id:3, label:"明確なBIASがある",                   must:true,  note:""},
+  {id:4, label:"MIX BIASの場合、有利な方向はある？",  must:false, note:""},
+  {id:5, label:"1Hはトレード方向と合ってる？",         must:false, note:""},
+  {id:6, label:"30mはトレード方向と合ってる？",        must:true,  note:""},
+  {id:7, label:"15分足にセットアップ出現した？",        must:true,  note:""},
+  {id:8, label:"5分足にStructureはある？",            must:true,  note:""},
+  {id:9, label:"1分足にStructureはある？",            must:false, note:""},
+  {id:10,label:"長期足のターゲットはまだ達していない？", must:true,  note:""},
+  {id:11,label:"TS1: 実体ブレイク",                  must:true,  note:""},
+  {id:12,label:"TS2: 逆S/R",                        must:false, note:""},
+  {id:13,label:"TS5: 構成ブレイク",                  must:false, note:""},
+  {id:14,label:"LTA有効",                            must:true,  note:""},
+  {id:15,label:"LP1と2はある？",                     must:true,  note:""},
+  {id:16,label:"1RRはある？",                        must:true,  note:""},
+  {id:17,label:"BW／TWを作った？",                   must:false, note:""},
+  {id:18,label:"リスク1%",                           must:true,  note:""},
+  {id:19,label:"本日2回以内",                        must:true,  note:""},
+];
+
+function loadChecklist(){
+  try{var s=localStorage.getItem(CL_KEY);if(s)return JSON.parse(s);}catch(e){}
+  return JSON.parse(JSON.stringify(CL_DEFAULT));
+}
+function saveChecklist(items){
+  localStorage.setItem(CL_KEY,JSON.stringify(items));
+}
+
+// checklist state: checked map + edit mode
+var clState={checked:{},editMode:false,items:loadChecklist()};
+
+function clSave(){saveChecklist(clState.items);}
+
+function renderChecklist(){
+  var items=clState.items;
+  var checked=clState.checked;
+  var editMode=clState.editMode;
+
+  // count must-items checked
+  var mustItems=items.filter(function(i){return i.must;});
+  var mustChecked=mustItems.filter(function(i){return checked[i.id];}).length;
+  var allChecked=items.filter(function(i){return checked[i.id];}).length;
+  var pct=mustItems.length?Math.round(mustChecked/mustItems.length*100):0;
+  var pctColor=pct===100?"#22c55e":pct>=60?"#f59e0b":"#ef4444";
+
+  var h='<div style="max-width:680px;">';
+
+  // Header bar
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">';
+  h+='<div>';
+  h+='<div style="font-size:28px;font-weight:900;color:'+pctColor+';">'+pct+'<span style="font-size:14px;color:#64748b;">%</span></div>';
+  h+='<div style="font-size:10px;color:#475569;letter-spacing:2px;">MUST '+mustChecked+'/'+mustItems.length+' · 全'+allChecked+'/'+items.length+'</div>';
+  h+='</div>';
+  h+='<div style="display:flex;gap:8px;">';
+  h+='<button class="btn-secondary" onclick="clResetChecks()">リセット</button>';
+  h+=(editMode
+    ?'<button class="btn-primary" onclick="clToggleEdit()">完了</button>'
+    :'<button class="btn-secondary" onclick="clToggleEdit()">リスト編集</button>');
+  h+='</div>';
+  h+='</div>';
+
+  // Progress bar
+  h+='<div style="background:#1e293b;height:6px;border-radius:3px;margin-bottom:24px;">';
+  h+='<div style="height:6px;border-radius:3px;width:'+pct+'%;background:'+pctColor+';transition:width .3s;"></div></div>';
+
+  // Items
+  h+='<div>';
+  items.forEach(function(item,idx){
+    var isChecked=!!checked[item.id];
+    if(editMode){
+      // Edit row
+      h+='<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#0d1117;border:1px solid #1e293b;margin-bottom:3px;">';
+      // drag handle (visual only)
+      h+='<span style="color:#1e293b;font-size:14px;cursor:grab;">⣿</span>';
+      // must toggle
+      h+='<button onclick="clToggleMust('+item.id+')" style="min-width:42px;padding:3px 7px;border:1px solid;border-color:'+(item.must?"#f59e0b":"#334155")+';background:'+(item.must?"#f59e0b22":"transparent")+';color:'+(item.must?"#f59e0b":"#475569")+';font-size:8px;letter-spacing:1px;cursor:pointer;">MUST</button>';
+      // label input
+      h+='<input class="inp" style="flex:1;padding:6px 10px;font-size:12px;" value="'+esc(item.label)+'" oninput="clUpdateLabel('+item.id+',this.value)">';
+      // note input
+      h+='<input class="inp" style="width:100px;padding:6px 10px;font-size:11px;color:#64748b;" placeholder="メモ" value="'+esc(item.note||"")+'" oninput="clUpdateNote('+item.id+',this.value)">';
+      // delete
+      h+='<button onclick="clDeleteItem('+item.id+')" style="padding:4px 10px;background:transparent;border:1px solid #7f1d1d;color:#f87171;font-size:10px;cursor:pointer;">✕</button>';
+      h+='</div>';
+    }else{
+      // Check row
+      h+='<div onclick="clToggleCheck('+item.id+')" style="display:flex;align-items:center;gap:14px;padding:12px 16px;background:'+(isChecked?"#052e16":"#0d1117")+';border:1px solid '+(isChecked?"#166534":"#1e293b")+';margin-bottom:3px;cursor:pointer;transition:all .1s;">';
+      // checkbox
+      h+='<div style="width:20px;height:20px;border:2px solid '+(isChecked?"#22c55e":"#334155")+';border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(isChecked?"#22c55e":"transparent")+';transition:all .1s;">';
+      if(isChecked)h+='<span style="color:#0a0a0f;font-size:13px;font-weight:900;">✓</span>';
+      h+='</div>';
+      // label
+      h+='<span style="flex:1;font-size:12px;color:'+(isChecked?"#86efac":"#e2e8f0")+';'+(isChecked?"text-decoration:line-through;opacity:0.7;":"")+'">'+esc(item.label)+'</span>';
+      // badges
+      if(item.must)h+='<span style="font-size:8px;color:#f59e0b;border:1px solid #f59e0b44;padding:2px 7px;letter-spacing:1px;">MUST</span>';
+      if(item.note)h+='<span style="font-size:9px;color:#475569;letter-spacing:1px;">'+esc(item.note)+'</span>';
+      h+='</div>';
+    }
+  });
+  h+='</div>';
+
+  // Add item button (edit mode)
+  if(editMode){
+    h+='<button onclick="clAddItem()" style="margin-top:10px;width:100%;padding:10px;background:transparent;border:1px dashed #334155;color:#475569;font-size:10px;letter-spacing:2px;cursor:pointer;">+ 項目を追加</button>';
+    h+='<button onclick="clResetToDefault()" style="margin-top:8px;width:100%;padding:8px;background:transparent;border:1px solid #7f1d1d;color:#f87171;font-size:9px;letter-spacing:1px;cursor:pointer;">デフォルトに戻す</button>';
+  }
+
+  h+='</div>';
+  return h;
+}
+
+window.clToggleCheck=function(id){
+  clState.checked[id]=!clState.checked[id];
+  setState({});
+};
+window.clResetChecks=function(){
+  clState.checked={};
+  setState({});
+};
+window.clToggleEdit=function(){
+  clState.editMode=!clState.editMode;
+  setState({});
+};
+window.clToggleMust=function(id){
+  var item=clState.items.find(function(i){return i.id===id;});
+  if(item)item.must=!item.must;
+  clSave();setState({});
+};
+window.clUpdateLabel=function(id,val){
+  var item=clState.items.find(function(i){return i.id===id;});
+  if(item)item.label=val;
+  clSave();
+};
+window.clUpdateNote=function(id,val){
+  var item=clState.items.find(function(i){return i.id===id;});
+  if(item)item.note=val;
+  clSave();
+};
+window.clDeleteItem=function(id){
+  clState.items=clState.items.filter(function(i){return i.id!==id;});
+  clSave();setState({});
+};
+window.clAddItem=function(){
+  var maxId=0;
+  clState.items.forEach(function(i){if(i.id>maxId)maxId=i.id;});
+  clState.items.push({id:maxId+1,label:"新しい項目",must:false,note:""});
+  clSave();setState({});
+};
+window.clResetToDefault=function(){
+  if(!confirm("リストをデフォルトに戻しますか？"))return;
+  clState.items=JSON.parse(JSON.stringify(CL_DEFAULT));
+  clState.checked={};
+  clSave();setState({});
+};
+
+window.openNew=function(){var item=state.section==="daily"?emptyDaily():state.section==="weekly"?emptyWeekly():emptyTrade();setState({editItem:item,view:"form"});};
+window.openDetail=function(i){var list=state.section==="daily"?state.data.daily[state.activePair]:state.section==="weekly"?state.data.weekly:state.data.trades;setState({detailItem:list[i],detailIdx:i,view:"detail"});};
+window.openEdit=function(){var item=state.section==="trades"?Object.assign({},state.detailItem,{_id:state.detailIdx}):Object.assign({},state.detailItem);setState({editItem:item,view:"form"});};
+window.doSave=function(){var item=state.editItem;if(state.section==="daily")saveDaily(item);else if(state.section==="weekly")saveWeekly(item);else saveTrade(item);};
+window.doDelete=function(){if(state.section==="daily")deleteDaily(state.detailItem.date);else if(state.section==="weekly")deleteWeekly(state.detailItem.week);else deleteTrade(state.detailIdx);};
+window.updateEdit=function(k,v){if(state.editItem)state.editItem[k]=v;};
+window.setState=setState;
+window.setSection=function(s){setState({section:s,view:"list"});};
+window.setPair=function(p){setState({activePair:p});};
+
+// ── 週次レビュー ──────────────────────────────────────────────────────────────
+var WR_KEY="fx-weekly-review-v1";
+var WR_PAIRS=["XAUUSD","NASDAQ","US30"];
+
+// 米国・日本の祝日 (2026年、M/D形式)
+var HOLIDAYS_2026=[
+  "1/1","1/12","1/19","2/11","2/16","2/23","3/20","4/29",
+  "5/3","5/4","5/5","5/18","7/20","8/11","9/21","9/23",
+  "10/12","11/3","11/23","12/23",
+  // US holidays
+  "1/19","2/16","5/25","7/3","9/7","11/26","12/25"
+];
+
+function isHolidayOrWeekend(dateStr){
+  var m=String(dateStr||"").match(/(\d+)\/(\d+)/);
+  if(!m)return true;
+  var d=new Date(2026,parseInt(m[1])-1,parseInt(m[2]));
+  var dow=d.getDay();
+  if(dow===0||dow===6)return true;
+  for(var i=0;i<HOLIDAYS_2026.length;i++){
+    var hm=HOLIDAYS_2026[i].match(/(\d+)\/(\d+)/);
+    if(hm&&parseInt(hm[1])===parseInt(m[1])&&parseInt(hm[2])===parseInt(m[2]))return true;
+  }
+  return false;
+}
+
+// 週の月〜金の平日リストを返す
+function getWeekdays(weekStartStr){
+  var m=String(weekStartStr||"").replace(/^W/,"").match(/(\d+)\/(\d+)/);
+  if(!m)return[];
+  var days=[];
+  var start=new Date(2026,parseInt(m[1])-1,parseInt(m[2]));
+  // 月曜に合わせる
+  var dow=start.getDay();
+  var diff=dow===0?1:dow===1?0:-(dow-1);
+  start.setDate(start.getDate()+diff);
+  for(var i=0;i<5;i++){
+    var d=new Date(start);d.setDate(start.getDate()+i);
+    days.push((d.getMonth()+1)+"/"+(d.getDate()));
+  }
+  return days;
+}
+
+function loadWeeklyReviews(){
+  try{var s=localStorage.getItem(WR_KEY);if(s)return JSON.parse(s);}catch(e){}
+  return [];
+}
+function saveWeeklyReviews(arr){localStorage.setItem(WR_KEY,JSON.stringify(arr));}
+
+var wrState={view:"list",editItem:null};
+
+function emptyWR(weekStr){
+  var pairSummaries={};
+  WR_PAIRS.forEach(function(p){pairSummaries[p]="";});
+  return{week:weekStr||"",totalTrades:0,ruleRate:"",ts1Count:"",ts2Count:"",noTradeCount:"",verdict:"合格",good:"",bad:"",nextWeek:"",pairSummaries:pairSummaries};
+}
+
+// 事実ログから週の統計を自動計算
+function calcWeekStats(weekStr){
+  var trades=state.data.trades||[];
+  var weekdays=getWeekdays(weekStr);
+  if(!weekdays.length)return null;
+
+  // その週のトレード
+  var weekTrades=trades.filter(function(t){
+    return weekdays.indexOf(t.date)>=0;
+  });
+  var actual=weekTrades.filter(function(t){
+    return t.entryType==="エントリー"||t.entryType==="テスト";
+  });
+  var ts1=weekTrades.filter(function(t){return(t.setup||"").replace(/[()]/g,"").trim()==="TS1";}).length;
+  var ts2=weekTrades.filter(function(t){return(t.setup||"").replace(/[()]/g,"").trim()==="TS2";}).length;
+  var withRule=actual.filter(function(t){return t.ruleFollow==="⭕️";});
+  var ruleRate=actual.length?Math.round(withRule.length/actual.length*100):null;
+
+  // W/L/BE集計（括弧付きも含む）
+  var wCount=actual.filter(function(t){return(t.result||"").replace(/[()]/g,"")==="W";}).length;
+  var lCount=actual.filter(function(t){return(t.result||"").replace(/[()]/g,"")==="L";}).length;
+  var beCount=actual.filter(function(t){return(t.result||"").replace(/[()]/g,"")==="BE";}).length;
+  var winRate=actual.length?Math.round(wCount/actual.length*100):null;
+
+  // NO TRADE日：平日でトレード記録がない日（祝日除く）
+  var tradedDays={};
+  weekTrades.forEach(function(t){tradedDays[t.date]=true;});
+  var noTradeDays=weekdays.filter(function(d){
+    return!isHolidayOrWeekend(d)&&!tradedDays[d];
+  });
+
+  return{
+    totalTrades:actual.length,
+    ruleRate:ruleRate!=null?ruleRate+"%":"",
+    ts1Count:ts1,
+    ts2Count:ts2,
+    noTradeCount:noTradeDays.length,
+    noTradeDays:noTradeDays,
+    wCount:wCount,
+    lCount:lCount,
+    beCount:beCount,
+    winRate:winRate
+  };
+}
+
+function renderWeeklyReview(){
+  var reviews=loadWeeklyReviews();
+  if(wrState.view==="form")return renderWRForm();
+  if(wrState.view==="detail")return renderWRDetail();
+
+  // list
+  var hdr='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">'+
+    '<span style="font-size:9px;color:#475569;letter-spacing:3px;">'+reviews.length+' WEEKS</span>'+
+    '<button class="btn-primary" onclick="wrOpenNew()">+ NEW WEEK</button></div>';
+
+  if(!reviews.length)return hdr+'<div class="empty">週次レビューがありません</div>';
+
+  // sort newest first
+  var sorted=reviews.slice().sort(function(a,b){
+    var am=String(a.week).replace(/^W/,"").match(/(\d+)\/(\d+)/);
+    var bm=String(b.week).replace(/^W/,"").match(/(\d+)\/(\d+)/);
+    if(!am||!bm)return 0;
+    return(parseInt(bm[1])*100+parseInt(bm[2]))-(parseInt(am[1])*100+parseInt(am[2]));
+  });
+
+  var rows=sorted.map(function(r){
+    var idx=reviews.indexOf(r);
+    var verdictColor=r.verdict==="合格"?"#22c55e":"#ef4444";
+    var stats=calcWeekStats(r.week);
+    var autoTotal=stats?stats.totalTrades:"-";
+    var autoNoTrade=stats?stats.noTradeCount:"-";
+    return'<div class="card" onclick="wrOpenDetail('+idx+')">'+
+      '<div style="display:grid;grid-template-columns:80px 60px 60px 60px 80px 1fr;gap:10px;align-items:center;">'+
+      '<span style="font-size:13px;color:#f59e0b;letter-spacing:1px;">'+esc(r.week)+'</span>'+
+      '<span style="font-size:10px;color:#94a3b8;">'+autoTotal+'件</span>'+
+      '<span style="font-size:10px;color:#64748b;">休'+autoNoTrade+'日</span>'+
+      '<span style="font-size:10px;color:#64748b;">'+(r.ruleRate||stats&&stats.ruleRate||"—")+'</span>'+
+      '<span style="font-size:10px;font-weight:700;color:'+verdictColor+';">'+esc(r.verdict||"")+'</span>'+
+      '<span style="font-size:10px;color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(r.good||"")+'</span>'+
+      '</div></div>';
+  }).join("");
+
+  return hdr+rows;
+}
+
+function renderWRForm(){
+  var r=wrState.editItem;if(!r)return"";
+  var isNew=wrState.isNew;
+  var stats=calcWeekStats(r.week);
+
+  var topBar='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">'+
+    '<button class="btn-secondary" onclick="wrState.view=\'list\';setState({})">← CANCEL</button>'+
+    '<button class="btn-primary" onclick="wrDoSave()">SAVE</button></div>';
+
+  var L=function(t,c){return'<label class="lbl"'+(c?' style="color:'+c+';"':'')+'>'+t+'</label>';};
+  var I=function(k,v,x){return'<input class="inp" value="'+esc(v||"")+'" oninput="wrState.editItem[\''+k+'\']=this.value;setState({})" '+(x||"")+'>';};
+  var T=function(k,v,rows){return'<textarea class="inp" rows="'+(rows||2)+'" style="resize:vertical;" oninput="wrState.editItem[\''+k+'\']=this.value">'+esc(v||"")+'</textarea>';};
+
+  // 自動集計バナー
+  var autoBanner="";
+  if(stats){
+    var wrColor=stats.winRate!=null?(stats.winRate>=60?"#22c55e":stats.winRate>=40?"#f59e0b":"#ef4444"):"#475569";
+    autoBanner='<div id="wr-auto-banner" style="background:#0a0e15;border:1px solid #334155;padding:12px 16px;margin-bottom:20px;">'+
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px;">'+
+      '<div><div class="lbl">AUTO: トレード数</div><div style="font-size:16px;font-weight:700;color:#e2e8f0;">'+stats.totalTrades+'</div></div>'+
+      '<div><div class="lbl">AUTO: ルール遵守</div><div style="font-size:16px;font-weight:700;color:#e2e8f0;">'+(stats.ruleRate||"—")+'</div></div>'+
+      '<div><div class="lbl">AUTO: TS1/TS2</div><div style="font-size:16px;font-weight:700;color:#e2e8f0;">'+stats.ts1Count+'/'+stats.ts2Count+'</div></div>'+
+      '<div><div class="lbl">AUTO: NO TRADE日</div><div style="font-size:16px;font-weight:700;color:#e2e8f0;">'+stats.noTradeCount+'日'+(stats.noTradeDays&&stats.noTradeDays.length?'<span style="font-size:9px;color:#334155;display:block;">'+stats.noTradeDays.join(", ")+'</span>':"")+'</div></div>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding-top:8px;border-top:1px solid #1e293b;">'+
+      '<div><div class="lbl" style="color:#22c55e;">W</div><div style="font-size:16px;font-weight:700;color:#22c55e;">'+stats.wCount+'</div></div>'+
+      '<div><div class="lbl" style="color:#ef4444;">L</div><div style="font-size:16px;font-weight:700;color:#ef4444;">'+stats.lCount+'</div></div>'+
+      '<div><div class="lbl" style="color:#f59e0b;">BE</div><div style="font-size:16px;font-weight:700;color:#f59e0b;">'+stats.beCount+'</div></div>'+
+      '<div><div class="lbl">勝率</div><div style="font-size:16px;font-weight:700;color:'+wrColor+';">'+(stats.winRate!=null?stats.winRate+"%":"—")+'</div></div>'+
+      '</div>'+
+      '</div>';
+  }
+
+  // 判定ボタン
+  var verdictBtns=['合格','改善','不合格'].map(function(v){
+    var col=v==="合格"?"#22c55e":v==="改善"?"#f59e0b":"#ef4444";
+    var sel=r.verdict===v;
+    return'<button onclick="wrState.editItem.verdict=\''+v+'\';setState({})" style="padding:7px 16px;border:1px solid;border-color:'+(sel?col:"#1e293b")+';background:'+(sel?col+"22":"transparent")+';color:'+(sel?col:"#475569")+';font-size:10px;letter-spacing:1px;cursor:pointer;font-weight:700;">'+v+'</button>';
+  }).join("");
+
+  // ペア別サマリー
+  var pairFields=WR_PAIRS.map(function(p){
+    return'<div style="margin-bottom:10px;">'+L(p+" 値動きサマリー","#94a3b8")+
+      '<textarea class="inp" rows="2" style="resize:vertical;" oninput="wrState.editItem.pairSummaries[\''+p+'\']=this.value">'+esc((r.pairSummaries&&r.pairSummaries[p])||"")+'</textarea>'+
+      '</div>';
+  }).join("");
+
+  var autoStatRow=stats
+    ?'<div id="wr-stat-row" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">'+
+      '<div style="padding:10px 12px;background:#0a0e15;border:1px solid #334155;"><div class="lbl">総トレード数</div><div style="font-size:18px;font-weight:700;color:#e2e8f0;">'+stats.totalTrades+'</div></div>'+
+      '<div style="padding:10px 12px;background:#0a0e15;border:1px solid #334155;"><div class="lbl">TS1回数</div><div style="font-size:18px;font-weight:700;color:#e2e8f0;">'+stats.ts1Count+'</div></div>'+
+      '<div style="padding:10px 12px;background:#0a0e15;border:1px solid #334155;"><div class="lbl">TS2回数</div><div style="font-size:18px;font-weight:700;color:#e2e8f0;">'+stats.ts2Count+'</div></div>'+
+      '<div style="padding:10px 12px;background:#0a0e15;border:1px solid #334155;"><div class="lbl">ルール遵守率</div><div style="font-size:18px;font-weight:700;color:#e2e8f0;">'+(stats.ruleRate||"—")+'</div></div>'+
+      '</div>'
+    :'<div style="padding:10px 14px;background:#0a0e15;border:1px solid #334155;margin-bottom:16px;font-size:10px;color:#475569;">週を入力すると事実ログから自動集計されます</div>';
+
+  return topBar+autoBanner+autoStatRow+
+    '<div style="margin-bottom:16px;">'+L("週（例: W1/5）")+
+    '<input id="wr-week-inp" class="inp" type="text" value="'+esc(r.week||"")+'" style="width:160px;" placeholder="例: W1/5" '+
+    'oninput="wrState.editItem.week=this.value;wrUpdateStats()" '+
+    'onchange="wrState.editItem.week=this.value;wrUpdateStats()">'+
+    '</div>'+
+    '<div style="margin-bottom:16px;">'+L("今週の判定")+'<div style="display:flex;gap:8px;margin-top:6px;">'+verdictBtns+'</div></div>'+
+    '<div style="background:#0d1117;border:1px solid #1e293b;padding:16px;margin-bottom:16px;">'+
+    '<div class="lbl" style="margin-bottom:12px;color:#64748b;">通貨別 値動きサマリー</div>'+
+    pairFields+'</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">'+
+    '<div>'+L("✓ よかったこと","#22c55e")+T("good",r.good,3)+'</div>'+
+    '<div>'+L("✗ 悪かったこと","#ef4444")+T("bad",r.bad,3)+'</div>'+
+    '</div>'+
+    '<div style="margin-bottom:12px;">'+L("来週に向けてやること")+T("nextWeek",r.nextWeek,2)+'</div>';
+}
+
+function renderWRDetail(){
+  var reviews=loadWeeklyReviews();
+  var r=wrState.editItem;if(!r)return"";
+  var idx=wrState.detailIdx;
+  var stats=calcWeekStats(r.week);
+  var verdictColor=r.verdict==="合格"?"#22c55e":r.verdict==="改善"?"#f59e0b":"#ef4444";
+
+  var topBar='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">'+
+    '<button class="btn-secondary" onclick="wrState.view=\'list\';setState({})">← BACK</button>'+
+    '<div style="display:flex;gap:8px;">'+
+    '<button class="btn-secondary" onclick="wrState.view=\'form\';wrState.isNew=false;setState({})">EDIT</button>'+
+    '<button class="btn-danger" onclick="wrDoDelete()">DELETE</button>'+
+    '</div></div>';
+
+  var F=function(label,value,c){return value?'<div class="field-box"><div class="lbl">'+label+'</div><div style="font-size:12px;color:'+(c||"#cbd5e1")+';white-space:pre-wrap;">'+esc(value)+'</div></div>':"";};
+
+  // 自動集計
+  var wrColor2=stats&&stats.winRate!=null?(stats.winRate>=60?"#22c55e":stats.winRate>=40?"#f59e0b":"#ef4444"):"#475569";
+  var autoRow=stats?
+    '<div style="margin-bottom:16px;">'
+    +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:6px;">'
+    +'<div style="padding:10px;background:#0d1117;border:1px solid #1e293b;text-align:center;"><div style="font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:4px;">トレード</div><div style="font-size:18px;font-weight:700;">'+stats.totalTrades+'</div></div>'
+    +'<div style="padding:10px;background:#0d1117;border:1px solid #1e293b;text-align:center;"><div style="font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:4px;">ルール遵守</div><div style="font-size:18px;font-weight:700;">'+(stats.ruleRate||"—")+'</div></div>'
+    +'<div style="padding:10px;background:#0d1117;border:1px solid #1e293b;text-align:center;"><div style="font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:4px;">TS1/TS2</div><div style="font-size:18px;font-weight:700;">'+stats.ts1Count+'/'+stats.ts2Count+'</div></div>'
+    +'<div style="padding:10px;background:#0d1117;border:1px solid #1e293b;text-align:center;"><div style="font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:4px;">NO TRADE</div><div style="font-size:18px;font-weight:700;">'+stats.noTradeCount+'日</div>'+(stats.noTradeDays&&stats.noTradeDays.length?'<div style="font-size:9px;color:#334155;margin-top:2px;">'+stats.noTradeDays.join(", ")+'</div>':'')+'</div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">'
+    +'<div style="padding:10px;background:#052e16;border:1px solid #166534;text-align:center;"><div style="font-size:9px;color:#22c55e;letter-spacing:2px;margin-bottom:4px;">W</div><div style="font-size:22px;font-weight:900;color:#22c55e;">'+stats.wCount+'</div></div>'
+    +'<div style="padding:10px;background:#2d0a0a;border:1px solid #7f1d1d;text-align:center;"><div style="font-size:9px;color:#ef4444;letter-spacing:2px;margin-bottom:4px;">L</div><div style="font-size:22px;font-weight:900;color:#ef4444;">'+stats.lCount+'</div></div>'
+    +'<div style="padding:10px;background:#1c1200;border:1px solid #713f12;text-align:center;"><div style="font-size:9px;color:#f59e0b;letter-spacing:2px;margin-bottom:4px;">BE</div><div style="font-size:22px;font-weight:900;color:#f59e0b;">'+stats.beCount+'</div></div>'
+    +'<div style="padding:10px;background:#0d1117;border:1px solid '+wrColor2+'44;text-align:center;"><div style="font-size:9px;color:'+wrColor2+';letter-spacing:2px;margin-bottom:4px;">勝率</div><div style="font-size:22px;font-weight:900;color:'+wrColor2+';">'+(stats.winRate!=null?stats.winRate+"%":"—")+'</div></div>'
+    +'</div>'
+    +'</div>'
+    :"";
+  // ペア別サマリー
+  var pairRows=WR_PAIRS.map(function(p){
+    var val=r.pairSummaries&&r.pairSummaries[p];
+    return val?'<div class="field-box"><div class="lbl" style="color:#94a3b8;">'+p+'</div><div style="font-size:12px;color:#cbd5e1;white-space:pre-wrap;">'+esc(val)+'</div></div>':"";
+  }).join("");
+
+  var wrAiCard=buildWrAiCard(r.week);
+
+  return topBar+
+    '<div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">'+
+    '<span style="font-size:26px;color:#f59e0b;letter-spacing:2px;">'+esc(r.week)+'</span>'+
+    '<span style="padding:4px 14px;background:'+verdictColor+'22;border:1px solid '+verdictColor+'44;color:'+verdictColor+';font-size:10px;letter-spacing:2px;font-weight:700;">'+esc(r.verdict||"")+'</span>'+
+    '</div>'+
+    autoRow+
+    (pairRows?'<div style="margin-bottom:12px;"><div class="lbl" style="margin-bottom:8px;color:#64748b;">通貨別 値動きサマリー</div>'+pairRows+'</div>':"")+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">'+
+    (r.good?'<div class="field-box" style="border-color:#166534;"><div class="lbl" style="color:#22c55e;">✓ よかったこと</div><div style="font-size:12px;color:#86efac;white-space:pre-wrap;">'+esc(r.good)+'</div></div>':"")+
+    (r.bad?'<div class="field-box" style="border-color:#7f1d1d;"><div class="lbl" style="color:#ef4444;">✗ 悪かったこと</div><div style="font-size:12px;color:#fca5a5;white-space:pre-wrap;">'+esc(r.bad)+'</div></div>':"")+
+    '</div>'+
+    F("来週に向けてやること",r.nextWeek,"#cbd5e1")+
+    wrAiCard;
+}
+
+// ── 週次レビュー AI分析 ───────────────────────────────────────────────────────
+function buildWrAiCard(weekStr){
+  var key="fx-wr-ai-"+weekStr.replace(/[^a-zA-Z0-9]/g,"_");
+  var saved=null;
+  try{var s=localStorage.getItem(key);if(s)saved=JSON.parse(s);}catch(e){}
+  var dateLabel=saved?'<div style="font-size:9px;color:#334155;margin-top:2px;">更新日: '+esc(saved.date)+'</div>':'';
+  var body=saved
+    ?'<div style="color:#cbd5e1;white-space:pre-wrap;">'+esc(saved.text)+'</div>'
+     +'<div style="margin-top:8px;font-size:9px;color:#334155;border-top:1px solid #1e293b;padding-top:6px;">更新日: '+esc(saved.date)+'</div>'
+    :'プロンプトをコピーして Claude.ai に貼り付け、回答を下の欄に保存してください。';
+  var weekEsc=esc(weekStr);
+  return '<div class="chart-card" style="border-color:#6366f144;margin-top:14px;">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+    +'<div><div class="chart-title" style="color:#a5b4fc;">✦ AI週次分析</div>'+dateLabel+'</div>'
+    +'<button onclick="wrAiCopy(this)" data-week="'+weekEsc+'" style="padding:6px 14px;background:#6366f1;border:none;color:#fff;font-size:10px;letter-spacing:1px;cursor:pointer;font-weight:700;">プロンプトをコピー</button>'
+    +'</div>'
+    +'<div id="wr-ai-result" style="font-size:11px;color:#475569;line-height:1.9;">'+body+'</div>'
+    +'</div>';
+}
+
+window.wrAiCopy=function(btn){
+  var weekStr=btn.getAttribute("data-week");
+  var el=document.getElementById("wr-ai-result");
+  if(!el||!weekStr)return;
+  var el=document.getElementById("wr-ai-result");
+  if(!el)return;
+
+  // その週のトレードを取得
+  var trades=state.data.trades||[];
+  var weekdays=getWeekdays(weekStr);
+  var weekTrades=trades.filter(function(t){
+    return (t.entryType==="エントリー"||t.entryType==="テスト")&&weekdays.indexOf(t.date)>=0;
+  });
+
+  // 前週データ（レビュー一覧から直前の週を探す）
+  var reviews=loadWeeklyReviews();
+  var prevReview=null;
+  var weekVal=function(w){var m=String(w).replace(/^W/,"").match(/(\d+)\/(\d+)/);return m?parseInt(m[1])*100+parseInt(m[2]):0;};
+  var thisVal=weekVal(weekStr);
+  var prevVal=0;
+  reviews.forEach(function(rv){
+    var v=weekVal(rv.week);
+    if(v<thisVal&&v>prevVal){prevVal=v;prevReview=rv;}
+  });
+
+  // 今週トレード行
+  var tradeLines=weekTrades.length
+    ?weekTrades.map(function(t){
+      var row="["+t.date+" "+(t.pair||"")+" "+(t.setup||"")+" "+(t.result||"")+"]";
+      if(t.memo)row+=" メモ:"+t.memo.replace(/\n/g," ");
+      if(t.good)row+=" 良:"+t.good.replace(/\n/g," ");
+      if(t.bad)row+=" 悪:"+t.bad.replace(/\n/g," ");
+      return row;
+    }).join("\n")
+    :"（この週のトレード記録なし）";
+
+  // 前週情報
+  var prevStr=prevReview
+    ?"前週（"+prevReview.week+"）の記録:\n"
+      +"  判定: "+(prevReview.verdict||"—")+"\n"
+      +"  よかったこと: "+(prevReview.good||"—")+"\n"
+      +"  悪かったこと: "+(prevReview.bad||"—")+"\n"
+      +"  来週への目標: "+(prevReview.nextWeek||"—")
+    :"（前週のレビューデータなし）";
+
+  // 今週のレビューメモ
+  var r=wrState.editItem||{};
+  var reviewMemo="今週の手動メモ:\n"
+    +"  よかったこと: "+(r.good||"—")+"\n"
+    +"  悪かったこと: "+(r.bad||"—")+"\n"
+    +"  来週への目標: "+(r.nextWeek||"—");
+
+  var prompt="以下は私のFXトレード週次レビューです。\n\n"
+    +"■ 今週（"+weekStr+"）のトレード記録:\n"+tradeLines+"\n\n"
+    +"■ "+reviewMemo+"\n\n"
+    +"■ "+prevStr+"\n\n"
+    +"この情報をもとに、以下を日本語で出力してください。\n\n"
+    +"【今週の悪かった点 — パターン分析】\n"
+    +"今週のトレードで見られた失敗・課題をグルーピングして要約。具体的なトレードを例に。\n\n"
+    +"【今週の良かった点 — パターン分析】\n"
+    +"今週のトレードで見られた成功・良い習慣を要約。具体的なトレードを例に。\n\n"
+    +"【前週との比較】\n"
+    +"前週の目標・課題と比べて、今週何が改善されたか、何がまだ課題かを具体的に。\n\n"
+    +"【総合評価と来週へのアドバイス】\n"
+    +"今週の総合評価と、来週特に意識すべき1〜2点を簡潔に。";
+
+
+  function showPasteUI(copied){
+    var wrAiKey="fx-wr-ai-"+weekStr.replace(/[^a-zA-Z0-9]/g,"_");
+    el.innerHTML=
+      '<div style="padding:14px;background:#0a0e15;border:1px solid #6366f144;">'
+      +(copied
+        ?'<div style="font-size:10px;color:#22c55e;letter-spacing:2px;margin-bottom:10px;">✓ コピー完了（'+weekTrades.length+'件のトレード）</div>'
+        :'<div style="font-size:10px;color:#f59e0b;margin-bottom:8px;">手動でコピーしてください（Ctrl+A → Ctrl+C）</div>'
+         +'<textarea style="width:100%;height:80px;background:#111827;border:1px solid #334155;color:#94a3b8;font-size:10px;padding:8px;resize:vertical;margin-bottom:10px;" readonly onclick="this.select()">'+prompt.replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</textarea>')
+      +'<div style="font-size:11px;color:#94a3b8;line-height:1.9;margin-bottom:10px;">'
+      +'① Claude.aiに貼り付けて送信<br>② 回答を下の欄に貼り付けて保存'
+      +'</div>'
+      +'<div style="font-size:9px;color:#475569;letter-spacing:1px;margin-bottom:6px;">▼ Claudeの回答をここに貼り付け</div>'
+      +'<textarea id="wr-ai-paste" class="inp" rows="10" style="width:100%;resize:vertical;font-size:11px;line-height:1.8;" placeholder="Claudeの分析結果をここに貼り付け..."></textarea>'
+      +'<button onclick="wrAiSave(this)" data-week="'+weekStr+'"" style="margin-top:10px;width:100%;padding:10px;background:#6366f1;border:none;color:#fff;font-size:10px;letter-spacing:2px;cursor:pointer;font-weight:700;">保存する</button>'
+      +'<div id="wr-ai-status" style="margin-top:8px;font-size:10px;color:#475569;"></div>'
+      +'</div>';
+  }
+
+  navigator.clipboard.writeText(prompt)
+    .then(function(){showPasteUI(true);})
+    .catch(function(){showPasteUI(false);});
+};
+
+window.wrAiSave=function(btn){
+  var weekStr=btn.getAttribute("data-week");
+  var area=document.getElementById("wr-ai-paste");
+  var status=document.getElementById("wr-ai-status");
+  if(!area)return;
+  var text=area.value.trim();
+  if(!text){if(status){status.style.color="#f87171";status.textContent="テキストが空です。";}return;}
+  var now=new Date();
+  var dateStr=now.getFullYear()+"/"+(now.getMonth()+1)+"/"+now.getDate()
+    +" "+String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+  var wrAiKey="fx-wr-ai-"+weekStr.replace(/[^a-zA-Z0-9]/g,"_");
+  localStorage.setItem(wrAiKey,JSON.stringify({text:text,date:dateStr}));
+  if(status){status.style.color="#22c55e";status.textContent="✓ 保存しました（"+dateStr+"）";}
+  var el=document.getElementById("wr-ai-result");
+  if(el){
+    setTimeout(function(){
+      el.innerHTML=
+        '<div style="color:#cbd5e1;white-space:pre-wrap;">'+esc(text)+'</div>'
+        +'<div style="margin-top:8px;font-size:9px;color:#334155;border-top:1px solid #1e293b;padding-top:6px;">更新日: '+dateStr+'</div>'
+        +'<button onclick="wrAiCopy(this)" data-week="'+esc(weekStr)+'" style="margin-top:8px;padding:5px 14px;background:transparent;border:1px solid #6366f1;color:#a5b4fc;font-size:10px;cursor:pointer;">再コピー（更新用）</button>';
+    },800);
+  }
+};
+
+window.wrUpdateStats=function(){
+  var inp=document.getElementById("wr-week-inp");
+  var weekVal=inp?inp.value:(wrState.editItem?wrState.editItem.week:"");
+  if(wrState.editItem)wrState.editItem.week=weekVal;
+  var stats=calcWeekStats(weekVal);
+  var banner=document.getElementById("wr-auto-banner");
+  if(banner&&stats){
+    var wrc=stats.winRate!=null?(stats.winRate>=60?"#22c55e":stats.winRate>=40?"#f59e0b":"#ef4444"):"#475569";
+    banner.innerHTML=
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px;">'+
+      '<div><div class="lbl">総トレード数</div><div style="font-size:16px;font-weight:700;color:#e2e8f0;">'+stats.totalTrades+'</div></div>'+
+      '<div><div class="lbl">ルール遵守</div><div style="font-size:16px;font-weight:700;color:#e2e8f0;">'+(stats.ruleRate||"—")+'</div></div>'+
+      '<div><div class="lbl">TS1/TS2</div><div style="font-size:16px;font-weight:700;color:#e2e8f0;">'+stats.ts1Count+'/'+stats.ts2Count+'</div></div>'+
+      '<div><div class="lbl">NO TRADE日</div><div style="font-size:16px;font-weight:700;color:#e2e8f0;">'+stats.noTradeCount+'日'+(stats.noTradeDays&&stats.noTradeDays.length?'<span style="font-size:9px;color:#334155;display:block;">'+stats.noTradeDays.join(", ")+'</span>':"")+'</div></div>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding-top:8px;border-top:1px solid #1e293b;">'+
+      '<div><div class="lbl" style="color:#22c55e;">W</div><div style="font-size:16px;font-weight:700;color:#22c55e;">'+stats.wCount+'</div></div>'+
+      '<div><div class="lbl" style="color:#ef4444;">L</div><div style="font-size:16px;font-weight:700;color:#ef4444;">'+stats.lCount+'</div></div>'+
+      '<div><div class="lbl" style="color:#f59e0b;">BE</div><div style="font-size:16px;font-weight:700;color:#f59e0b;">'+stats.beCount+'</div></div>'+
+      '<div><div class="lbl">勝率</div><div style="font-size:16px;font-weight:700;color:'+wrc+';">'+(stats.winRate!=null?stats.winRate+"%":"—")+'</div></div>'+
+      '</div>';
+    var statRow=document.getElementById("wr-stat-row");
+    if(statRow)statRow.innerHTML=
+      '<div style="padding:10px 12px;background:#0a0e15;border:1px solid #334155;"><div class="lbl">総トレード数</div><div style="font-size:18px;font-weight:700;color:#e2e8f0;">'+stats.totalTrades+'</div></div>'+
+      '<div style="padding:10px 12px;background:#0a0e15;border:1px solid #334155;"><div class="lbl">TS1回数</div><div style="font-size:18px;font-weight:700;color:#e2e8f0;">'+stats.ts1Count+'</div></div>'+
+      '<div style="padding:10px 12px;background:#0a0e15;border:1px solid #334155;"><div class="lbl">TS2回数</div><div style="font-size:18px;font-weight:700;color:#e2e8f0;">'+stats.ts2Count+'</div></div>'+
+      '<div style="padding:10px 12px;background:#0a0e15;border:1px solid #334155;"><div class="lbl">ルール遵守率</div><div style="font-size:18px;font-weight:700;color:#e2e8f0;">'+(stats.ruleRate||"—")+'</div></div>';
+  }
+};
+window.wrOpenNew=function(){
+  wrState.editItem=emptyWR();wrState.view="form";wrState.isNew=true;setState({});
+};
+window.wrOpenDetail=function(idx){
+  var reviews=loadWeeklyReviews();
+  wrState.editItem=JSON.parse(JSON.stringify(reviews[idx]));
+  wrState.detailIdx=idx;wrState.view="detail";setState({});
+};
+window.wrDoSave=function(){
+  var reviews=loadWeeklyReviews();
+  var r=wrState.editItem;
+  if(wrState.isNew){
+    reviews.unshift(r);
+  }else{
+    reviews[wrState.detailIdx]=r;
+  }
+  saveWeeklyReviews(reviews);
+  wrState.view="list";setState({});
+};
+window.wrDoDelete=function(){
+  if(!confirm("削除しますか？"))return;
+  var reviews=loadWeeklyReviews();
+  reviews.splice(wrState.detailIdx,1);
+  saveWeeklyReviews(reviews);
+  wrState.view="list";setState({});
+};
+
+function render(){
+  var sec=state.section,pair=state.activePair,view=state.view;
+  var isCalc=sec==="calc";
+  var navTabs=[["daily","日次分析"],["weekly","週次分析"],["trades","事実ログ"],["wreview","週次レビュー"],["charts","チャート"],["insights","トレード分析"],["checklist","チェックリスト"],["calc","ポジション計算"]].map(function(x){return'<button class="nav-btn'+(sec===x[0]?" active":"")+'" onclick="setSection(\''+x[0]+'\')">'+x[1]+'</button>';}).join("");
+  var pairTabs=sec==="daily"?'<div style="margin-left:auto;display:flex;border-left:1px solid #1e293b;">'+PAIRS.map(function(p){return'<button class="pair-btn'+(pair===p?" active":"")+'" onclick="setPair(\''+p+'\')">'+p+'</button>';}).join("")+'</div>':"";
+  var content=isCalc?'<div id="calc-root"></div>':sec==="charts"?renderCharts():sec==="insights"?renderInsights():sec==="checklist"?renderChecklist():sec==="wreview"?renderWeeklyReview():view==="list"?renderList():view==="form"?renderForm():view==="detail"?renderDetail():"";
+  document.getElementById("app").innerHTML=
+    '<div style="border-bottom:1px solid #1e293b;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;background:#0a0e15;"><div style="display:flex;align-items:center;gap:10px;"><div style="width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e;"></div><span style="font-size:11px;color:#334155;letter-spacing:4px;text-transform:uppercase;">FX Trading Log</span></div><span style="font-size:10px;color:#334155;">'+todayStr()+'</span></div>'+
+    '<div style="border-bottom:1px solid #1e293b;display:flex;flex-wrap:wrap;background:#0a0e15;">'+navTabs+pairTabs+'</div>'+
+    '<div style="flex:1;padding:24px;max-width:860px;margin:0 auto;width:100%;">'+content+'</div>';
+  if(isCalc)renderCalc();
+}
+render();
+
+</script>
+</body>
+</html>
